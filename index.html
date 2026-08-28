@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Part Splitter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --paper:#F6F3EC; --paper-2:#EDE8DD; --ink:#1C1A17; --ink-2:#5C5750; --rule:#C9C2B4;
+    --red:#8E1B2A; --red-2:#B63A48; --ok:#2E6B3E;
+    --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);-webkit-text-size-adjust:100%}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:22px}
+  h1{font-family:var(--display);font-weight:400;font-size:34px;letter-spacing:-.01em;margin:0}
+  h1 em{font-style:italic;color:var(--red)}
+  .sub{color:var(--ink-2);font-size:14px;margin-top:4px}
+
+  /* Drop zone drawn as a stave */
+  .drop{position:relative;border:0;border-radius:6px;background:var(--paper-2);padding:40px 24px;text-align:center;cursor:pointer;
+        background-image:repeating-linear-gradient(to bottom,transparent 0 22px,var(--rule) 22px 23px);background-size:100% 115px;background-position:0 center;background-repeat:no-repeat}
+  .drop.over{outline:2px solid var(--red);outline-offset:2px}
+  .drop .brace{font-family:var(--display);font-size:64px;line-height:1;color:var(--red);display:block}
+  .drop strong{display:block;font-family:var(--display);font-size:22px;font-weight:400;margin-top:6px}
+  .drop span{display:block;color:var(--ink-2);font-size:14px;margin-top:6px}
+  .drop input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+
+  .card{background:#fff;border:1px solid var(--rule);border-radius:6px;padding:18px 20px;margin-top:18px}
+  .card h2{font-family:var(--display);font-weight:400;font-size:20px;margin:0 0 4px}
+  .meta{color:var(--ink-2);font-size:14px}
+  .meta b{color:var(--ink);font-weight:600}
+
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-top:14px}
+  .opt label{display:block;font-size:13px;color:var(--ink-2);margin-bottom:4px}
+  .opt input[type=text]{width:100%;font:inherit;font-size:16px;padding:9px 10px;border:1px solid var(--rule);border-radius:4px;background:var(--paper)}
+  .toggle{display:flex;align-items:center;gap:10px;font-size:15px;padding-top:22px}
+  .toggle input{width:20px;height:20px;accent-color:var(--red)}
+  .hint{font-family:var(--mono);font-size:12px;color:var(--ink-2);margin-top:6px}
+
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;text-align:left;padding:8px 6px;border-bottom:1px solid var(--rule)}
+  td{padding:8px 6px;border-bottom:1px solid var(--paper-2);vertical-align:middle;font-size:15px}
+  td.n{font-family:var(--mono);font-size:13px;color:var(--ink-2);width:44px}
+  td.th img{width:54px;height:auto;border:1px solid var(--rule);display:block;background:#fff}
+  select{font:inherit;font-size:15px;padding:7px 8px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);max-width:100%}
+  select.warn{border-color:var(--red);background:#FBEDEF}
+  td.status{font-size:13px;color:var(--ink-2);width:110px}
+  td.status.dup{color:var(--red)}
+  tr.dropped td{opacity:.55}
+
+  .actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
+  button{font:inherit;font-size:16px;padding:12px 20px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+  button.primary{background:var(--red);border-color:var(--red)}
+  button.quiet{background:transparent;color:var(--ink)}
+  button:disabled{opacity:.45;cursor:default}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--red-2);outline-offset:2px}
+  .out{font-size:14px;color:var(--ink-2)}
+  .out.ok{color:var(--ok)}
+  .out.err{color:var(--red)}
+  .files{margin:10px 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:13px}
+  .files li{padding:4px 0;border-bottom:1px dashed var(--paper-2)}
+  .files li b{font-weight:600}
+  .hidden{display:none}
+  @media (max-width:600px){.opts{grid-template-columns:1fr}.toggle{padding-top:0}td.th{display:none}th.th{display:none}}
+  @media (prefers-reduced-motion:no-preference){.drop{transition:outline-color .15s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Part <em>Splitter</em></h1>
+      <div class="sub">Turn a set-of-parts PDF into one file per part. Everything runs on this device; nothing is uploaded.</div>
+    </div>
+  </header>
+
+  <label class="drop" id="drop">
+    <span class="brace">{</span>
+    <strong>Choose a set-of-parts PDF</strong>
+    <span>Tap to pick from Files, or drop a PDF here</span>
+    <input type="file" id="file" accept="application/pdf,.pdf">
+  </label>
+
+  <section class="card hidden" id="summary">
+    <h2 id="title">—</h2>
+    <div class="meta" id="meta"></div>
+    <div class="opts">
+      <div class="opt">
+        <label for="prefix">Filename prefix</label>
+        <input type="text" id="prefix" autocapitalize="off" autocorrect="off">
+        <div class="hint" id="example"></div>
+      </div>
+      <div class="opt">
+        <label class="toggle"><input type="checkbox" id="dedupe" checked> Drop duplicate copies of a page</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="review">
+    <h2>Check each page</h2>
+    <div class="meta">Detected from the page header. Fix any that are wrong before exporting.</div>
+    <table>
+      <thead><tr><th>Pg</th><th class="th"></th><th>Part</th><th>Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="actions">
+      <button class="primary" id="export">Export parts</button>
+      <button class="quiet" id="reset">Start over</button>
+      <span class="out" id="out"></span>
+    </div>
+    <ul class="files" id="files"></ul>
+  </section>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// Canonical part list, in band order. Each has one or more regexes tested on normalised header text.
+const PARTS = [
+  ["Full Score",        [/\bFULL SCORE\b/, /^SCORE\b/]],
+  ["Soprano Eb",        [/\bSOPRANO\b/]],
+  ["Solo Cornet Bb",    [/\bSOLO CORNET/]],
+  ["Repiano Cornet Bb", [/\bREPIANO/]],
+  ["1st Cornet Bb",     [/\b1ST CORNET/]],
+  ["2nd Cornet Bb",     [/\b2ND CORNET/]],
+  ["3rd Cornet Bb",     [/\b3RD CORNET/]],
+  ["Flugel Horn Bb",    [/\bFLUGEL/]],
+  ["Solo Horn Eb",      [/\bSOLO HORN/]],
+  ["1st Horn Eb",       [/\b1ST HORN/]],
+  ["2nd Horn Eb",       [/\b2ND HORN/]],
+  ["1st Baritone Bb",   [/\b1ST BARITONE/]],
+  ["2nd Baritone Bb",   [/\b2ND BARITONE/]],
+  ["1st Trombone Bb",   [/\b1ST TROMBONE/]],
+  ["2nd Trombone Bb",   [/\b2ND TROMBONE/]],
+  ["Bass Trombone",     [/\bBASS TROMBONE/]],
+  ["Euphonium Bb",      [/\bEUPHONIUM/]],
+  ["Bass Eb",           [/\bBASS E ?B\b/, /\bE ?B BASS\b/]],
+  ["Bass Bb",           [/\bBASS B ?B\b/, /\bB ?B BASS\b/]],
+  ["Percussion Score",  [/\bPERCUSSION\b(?:(?!\b(?:I|II|1|2)\b).){0,40}?\bSCORE\b/]],
+  ["Percussion I",      [/\bPERCUSSION\s*(I|1)\b(?!I)/]],
+  ["Percussion II",     [/\bPERCUSSION\s*(II|2)\b/]],
+  ["Timpani",           [/\bTIMP/]],
+  ["Drums",             [/\bDRUM/]],
+];
+const UNKNOWN = "— not detected —";
+
+function norm(s){
+  return s.replace(/[♭𝄫]/g,"b").replace(/♯/g,"#").toUpperCase().replace(/\s+/g," ").trim();
+}
+function matchPart(h){
+  for(const [name,res] of PARTS) if(res.some(r=>r.test(h))) return name;
+  return null;
+}
+// The part label is the first thing top-left. Read header items in reading order and stop at the first match,
+// so instrument cues further down the header (e.g. "Bass Eb" on a Bass Bb part) can't hijack detection.
+function detectPart(items){
+  const sorted = [...items].sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
+  let acc="";
+  for(const it of sorted){ acc += " "+it.str; const m=matchPart(norm(acc)); if(m) return m; }
+  return null;
+}
+function safeName(s){ return s.replace(/[\\/:*?"<>|]/g,"-").replace(/\s+/g," ").trim(); }
+
+let state = null;
+
+const $ = id => document.getElementById(id);
+const drop = $("drop"), fileIn = $("file");
+["dragenter","dragover"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",ev=>{const f=ev.dataTransfer.files[0]; if(f) load(f);});
+fileIn.addEventListener("change",()=>{ if(fileIn.files[0]) load(fileIn.files[0]); });
+$("reset").addEventListener("click",()=>location.reload());
+$("prefix").addEventListener("input",updateExample);
+$("dedupe").addEventListener("change",render);
+$("export").addEventListener("click",exportParts);
+
+async function load(file){
+  setOut("Reading pages…");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({data:bytes.slice()}).promise;
+  const pages = [];
+  const numbers = new Set(); const titles = new Set();
+
+  for(let i=1;i<=pdf.numPages;i++){
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({scale:1});
+    const tc = await page.getTextContent();
+    const upright = tc.items.filter(it=>Math.abs(it.transform[1])<0.01 && it.str.trim());
+    const header = upright.filter(it=>it.transform[5] > vp.height*0.80);
+    const headerText = header.map(it=>it.str).join(" ");
+    const fullText = upright.map(it=>it.str).join(" ");
+
+    // Piece numbers and titles can sit anywhere on the page (several pieces per page), so scan the whole page.
+    upright.forEach(it=>{
+      const t=it.str.trim(); const size=it.transform[0];
+      const m=t.match(/^No\.?\s*(\d{2,5})$/i); if(m && size>=11){ numbers.add(m[1]); return; }
+      if(size>=14 && /^[A-Z][A-Z0-9 .'’,&!:-]{3,}$/.test(t)) titles.add(t);
+    });
+
+    // small thumbnail for the review table
+    const tvp = page.getViewport({scale: 110/vp.width});
+    const c = document.createElement("canvas"); c.width=tvp.width; c.height=tvp.height;
+    await page.render({canvasContext:c.getContext("2d"),viewport:tvp}).promise;
+
+    pages.push({ n:i, part:detectPart(header), header:headerText, key:norm(fullText), thumb:c.toDataURL("image/jpeg",0.6) });
+    setOut(`Reading pages… ${i}/${pdf.numPages}`);
+  }
+
+  const nums = [...numbers].sort((a,b)=>a-b);
+  const titleList = [...titles];
+  state = { bytes, pages, nums, titleList, fileName:file.name };
+
+  $("title").textContent = titleList.length ? titleList.join(" · ") : file.name;
+  $("meta").innerHTML = `<b>${pages.length}</b> pages · piece ${nums.length>1?"numbers":"number"} <b>${nums.join(", ")||"not found"}</b>`;
+  $("prefix").value = nums.length ? nums.join("-") : file.name.replace(/\.pdf$/i,"");
+  $("summary").classList.remove("hidden"); $("review").classList.remove("hidden");
+  drop.classList.add("hidden");
+  setOut("");
+  render(); updateExample();
+}
+
+function plan(){
+  // Group pages by part; optionally drop pages whose text is identical to an earlier page in the same part.
+  const dedupe = $("dedupe").checked;
+  const groups = new Map(); const seen = new Map();
+  const status = [];
+  for(const p of state.pages){
+    const part = p.part;
+    if(!part){ status[p.n]={dropped:true,label:"skipped"}; continue; }
+    const k = part+"§"+p.key;
+    if(dedupe && seen.has(k)){ status[p.n]={dropped:true,label:`copy of p.${seen.get(k)}`,dup:true}; continue; }
+    seen.set(k,p.n);
+    if(!groups.has(part)) groups.set(part,[]);
+    groups.get(part).push(p.n);
+    status[p.n]={dropped:false,label:"keep"};
+  }
+  return {groups,status};
+}
+
+function render(){
+  const {groups,status} = plan();
+  const tb = $("rows"); tb.innerHTML="";
+  for(const p of state.pages){
+    const s = status[p.n];
+    const tr = document.createElement("tr"); if(s.dropped) tr.className="dropped";
+    const sel = document.createElement("select");
+    sel.className = p.part?"":"warn";
+    const o0=new Option(UNKNOWN,""); sel.add(o0);
+    PARTS.forEach(([name])=>sel.add(new Option(name,name)));
+    sel.value = p.part||"";
+    sel.addEventListener("change",()=>{ p.part = sel.value||null; render(); });
+    tr.innerHTML = `<td class="n">${p.n}</td><td class="th"><img src="${p.thumb}" alt=""></td><td></td><td class="status ${s.dup?"dup":""}">${s.label}</td>`;
+    tr.children[2].appendChild(sel);
+    tb.appendChild(tr);
+  }
+  const missing = state.pages.filter(p=>!p.part).length;
+  $("export").textContent = `Export ${groups.size} part${groups.size===1?"":"s"}`;
+  $("export").disabled = groups.size===0;
+  if(missing) setOut(`${missing} page${missing===1?"":"s"} not detected — set the part or it will be skipped.`,"err"); else setOut("");
+}
+
+function updateExample(){
+  $("example").textContent = `e.g. ${safeName($("prefix").value)} – 1st Cornet Bb.pdf`;
+}
+
+function setOut(msg,cls){ const o=$("out"); o.textContent=msg; o.className="out "+(cls||""); }
+
+async function exportParts(){
+  const {groups} = plan();
+  const prefix = safeName($("prefix").value)||"parts";
+  $("export").disabled = true; setOut("Building files…");
+  try{
+    const src = await PDFLib.PDFDocument.load(state.bytes);
+    const zip = new JSZip(); const list = $("files"); list.innerHTML="";
+    const order = PARTS.map(p=>p[0]);
+    const names = [...groups.keys()].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+    for(const part of names){
+      const pageNums = groups.get(part);
+      const doc = await PDFLib.PDFDocument.create();
+      const copied = await doc.copyPages(src, pageNums.map(n=>n-1));
+      copied.forEach(pg=>doc.addPage(pg));
+      doc.setTitle(`${prefix} – ${part}`);
+      const fname = `${prefix} – ${part}.pdf`;
+      zip.file(fname, await doc.save());
+      const li=document.createElement("li"); li.innerHTML=`<b>${fname}</b> · ${pageNums.length} page${pageNums.length===1?"":"s"}`; list.appendChild(li);
+    }
+    const blob = await zip.generateAsync({type:"blob"});
+    const zipName = `${prefix} – parts.zip`;
+    const f = new File([blob], zipName, {type:"application/zip"});
+    if(navigator.canShare && navigator.canShare({files:[f]})){
+      try{ await navigator.share({files:[f], title:zipName}); setOut(`Exported ${names.length} parts.`,"ok"); }
+      catch(e){ if(e.name!=="AbortError") throw e; setOut("Export cancelled."); }
+    }else{
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=zipName; document.body.appendChild(a); a.click(); a.remove();
+      setOut(`Exported ${names.length} parts.`,"ok");
+    }
+  }catch(e){
+    console.error(e); setOut(`Export failed: ${e.message}`,"err");
+  }finally{ $("export").disabled=false; }
+}
+</script>
+</body>
+</html>
