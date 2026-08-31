@@ -165,12 +165,41 @@ function matchPart(h){
   for(const [name,res] of PARTS) if(res.some(r=>r.test(h))) return name;
   return null;
 }
-// The part label is the first thing top-left. Read header items in reading order and stop at the first match,
+function readingOrder(items){
+  return [...items].sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
+}
+
+// Some engravers emit one text item per glyph, so "Soprano" arrives as S,o,p,r,a,n,o and no part regex
+// can ever match. Stitch runs of single-character items back into words using the horizontal gap
+// between them, measured as a fraction of the font size: on the local fixtures gaps inside a word reach
+// 0.06 and gaps between words start at 0.20, so 0.12 sits in the empty band between the two. Items that
+// already carry whole words are passed through untouched, which leaves normally-engraved sets exactly
+// as they were. Music glyphs stay separate because they are spread across the stave, far past the gap.
+const GLYPH_GAP = 0.12;
+function stitch(items){
+  const words = [];
+  for(const it of readingOrder(items)){
+    const last = words[words.length-1];
+    const single = it.str.trim().length === 1;
+    const size = Math.abs(it.transform[0]), x = it.transform[4], y = it.transform[5], w = it.width||0;
+    // The gap is bounded on both sides: a negative gap means the next glyph sits left of the previous
+    // one, which is a second column sharing a baseline (composer credit beside a part label), not a word.
+    const gap = x - (last ? last.x + last.w : 0);
+    if(last && last.glyphs && single && Math.abs(y-last.y) < 1 && Math.abs(gap) < GLYPH_GAP*size){
+      last.str += it.str; last.w = x + w - last.x;   // run continues; still counts as glyph-built
+      continue;
+    }
+    words.push({str:it.str, size, x, y, w, glyphs:single});
+  }
+  return words;
+}
+function textOf(words){ return words.map(w=>w.str).join(" "); }
+
+// The part label is the first thing top-left. Read words in reading order and stop at the first match,
 // so instrument cues further down the header (e.g. "Bass Eb" on a Bass Bb part) can't hijack detection.
 function detectPart(items){
-  const sorted = [...items].sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
   let acc="";
-  for(const it of sorted){ acc += " "+it.str; const m=matchPart(norm(acc)); if(m) return m; }
+  for(const w of stitch(items)){ acc += " "+w.str; const m=matchPart(norm(acc)); if(m) return m; }
   return null;
 }
 function safeName(s){ return s.replace(/[\\/:*?"<>|]/g,"-").replace(/\s+/g," ").trim(); }
@@ -185,29 +214,30 @@ function headerItems(upright, vpHeight){ return upright.filter(it=>it.transform[
 // so 12pt sits in a wide empty gap. Music glyphs are excluded by requiring a letter and two characters
 // (notation fonts emit single non-letter glyphs at large sizes).
 const FIRST_PAGE_PT = 12;
-function titleSize(header){
-  const lettered = header.filter(it=>/[A-Za-z]/.test(it.str) && it.str.trim().length>=2);
-  return lettered.length ? Math.max(...lettered.map(it=>Math.abs(it.transform[0]))) : 0;
+function titleSize(words){
+  const lettered = words.filter(w=>/[A-Za-z]/.test(w.str) && w.str.trim().length>=2);
+  return lettered.length ? Math.max(...lettered.map(w=>w.size)) : 0;
 }
 // A page that opens a new part must never continue the previous one, even when its own label is
 // unrecognised — inheriting there would silently file it under the wrong neighbour. A piece number
 // or a title block in the header both mean "this page starts something".
-function isFirstPage(header){
-  if(header.some(it=>/^No\.?\s*\d{2,5}$/i.test(it.str.trim()) && it.transform[0]>=11)) return true;
-  return titleSize(header) >= FIRST_PAGE_PT;
+function isFirstPage(words){
+  if(words.some(w=>/^No\.?\s*\d{2,5}$/i.test(w.str.trim()) && w.size>=11)) return true;
+  return titleSize(words) >= FIRST_PAGE_PT;
 }
 
 // Everything the app knows about a page before the user touches anything.
 function pageRecord(n, items, vpHeight){
   const upright = uprightItems(items);
   const header = headerItems(upright, vpHeight);
+  const headerWords = stitch(header);
   return {
     n,
     detected: detectPart(header),   // what the header says; never changes after load
     override: undefined,            // what the user chose in the dropdown, if anything
-    first: isFirstPage(header),     // opens a new part, so it may not inherit
-    header: header.map(it=>it.str).join(" "),
-    key: norm(upright.map(it=>it.str).join(" ")),
+    first: isFirstPage(headerWords),// opens a new part, so it may not inherit
+    header: textOf(headerWords),
+    key: norm(textOf(stitch(upright))),
   };
 }
 

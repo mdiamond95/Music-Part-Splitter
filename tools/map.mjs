@@ -23,7 +23,7 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
   "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
-  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "titleSize", "isFirstPage",
+  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage",
 ];
 
 function loadCore(){
