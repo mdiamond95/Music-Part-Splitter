@@ -129,6 +129,7 @@
 // Canonical part list, in band order. Each has one or more regexes tested on normalised header text.
 const PARTS = [
   ["Full Score",        [/\bFULL SCORE\b/, /^SCORE\b/]],
+  ["Flute/Oboe",        [/\bFLUTE\b/, /\bOBOE\b/]],
   ["Soprano Eb",        [/\bSOPRANO\b/]],
   ["Solo Cornet Bb",    [/\bSOLO CORNET/]],
   ["Repiano Cornet Bb", [/\bREPIANO/]],
@@ -139,14 +140,23 @@ const PARTS = [
   ["Solo Horn Eb",      [/\bSOLO HORN/]],
   ["1st Horn Eb",       [/\b1ST HORN/]],
   ["2nd Horn Eb",       [/\b2ND HORN/]],
+  ["1st Horn F",        [/\b1ST\.?\s*F\.?\s*HORN\b/, /\b1ST HORN F\b/]],
+  ["2nd Horn F",        [/\b2ND\.?\s*F\.?\s*HORN\b/, /\b2ND HORN F\b/]],
   ["1st Baritone Bb",   [/\b1ST BARITONE/]],
   ["2nd Baritone Bb",   [/\b2ND BARITONE/]],
+  ["Baritone Bb",       [/\bBARITONE B ?B\b/]],
+  ["1st Baritone B.C.", [/\b1ST\.?\s*BARITONE\b.{0,60}?\bB\.C\./]],
+  ["2nd Baritone B.C.", [/\b2ND\.?\s*BARITONE\b.{0,60}?\bB\.C\./]],
+  ["Baritone B.C.",     [/\bBARITONE\b.{0,60}?\bB\.C\./]],
   ["1st Trombone Bb",   [/\b1ST TROMBONE/]],
   ["2nd Trombone Bb",   [/\b2ND TROMBONE/]],
   ["Bass Trombone",     [/\bBASS TROMBONE/]],
   ["Euphonium Bb",      [/\bEUPHONIUM/]],
-  ["Bass Eb",           [/\bBASS E ?B\b/, /\bE ?B BASS\b/]],
-  ["Bass Bb",           [/\bBASS B ?B\b/, /\bB ?B BASS\b/]],
+  ["Euphonium B.C.",    [/\bEUPHONIUM\b.{0,60}?\bB\.C\./]],
+  ["Bass Eb",           [/\bBASS (?:IN )?E ?B\b/, /\bE ?B BASS\b/]],
+  ["Bass Bb",           [/\bBASS (?:IN )?B ?B\b/, /\bB ?B BASS\b/]],
+  ["Tuba B.C.",         [/\bTUBA\b.{0,60}?\bB\.C\./, /\bTUBA\b/]],
+  ["String Bass",       [/\bSTRING\s*\/?\s*ELECTRIC BASS\b/, /\bSTRING BASS\b/]],
   ["Percussion Score",  [/\bPERCUSSION\b(?:(?!\b(?:I|II|1|2)\b).){0,40}?\bSCORE\b/]],
   ["Percussion I",      [/\bPERCUSSION\s*(I|1)\b(?!I)/]],
   ["Percussion II",     [/\bPERCUSSION\s*(II|2)\b/]],
@@ -161,9 +171,16 @@ const SKIP_LABEL = "Skip this page";
 function norm(s){
   return s.replace(/[♭𝄫]/g,"b").replace(/♯/g,"#").toUpperCase().replace(/\s+/g," ").trim();
 }
+// Return the part whose regex matches the longest span of h, so a qualified label beats the plain one
+// it contains: "2nd Baritone/Trombone B.C." must not settle for "2nd Baritone". Ties keep the earlier
+// entry, which preserves the band-order preference the list has always encoded.
 function matchPart(h){
-  for(const [name,res] of PARTS) if(res.some(r=>r.test(h))) return name;
-  return null;
+  let best=null, bestLen=0;
+  for(const [name,res] of PARTS) for(const r of res){
+    const m = h.match(r);
+    if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; }
+  }
+  return best;
 }
 function readingOrder(items){
   return [...items].sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
@@ -195,12 +212,24 @@ function stitch(items){
 }
 function textOf(words){ return words.map(w=>w.str).join(" "); }
 
-// The part label is the first thing top-left. Read words in reading order and stop at the first match,
+// The part label is the first thing top-left. Read words in reading order and take the earliest match,
 // so instrument cues further down the header (e.g. "Bass Eb" on a Bass Bb part) can't hijack detection.
+// Once something matches, keep reading a few more words: qualifiers trail their base name, and the
+// accumulator would otherwise commit to "2nd Baritone" before "B.C." had even been read. Only a
+// strictly longer match displaces the incumbent, so a later cue cannot take over on equal footing.
+const LOOKAHEAD = 4;
 function detectPart(items){
-  let acc="";
-  for(const w of stitch(items)){ acc += " "+w.str; const m=matchPart(norm(acc)); if(m) return m; }
-  return null;
+  let acc="", best=null, bestLen=0, after=-1;
+  for(const w of stitch(items)){
+    acc += " "+w.str;
+    const h = norm(acc);
+    for(const [name,res] of PARTS) for(const r of res){
+      const m = h.match(r);
+      if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; if(after<0) after=0; }
+    }
+    if(after>=0 && ++after > LOOKAHEAD) break;
+  }
+  return best;
 }
 function safeName(s){ return s.replace(/[\\/:*?"<>|]/g,"-").replace(/\s+/g," ").trim(); }
 
