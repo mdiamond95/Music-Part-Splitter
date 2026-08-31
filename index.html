@@ -469,10 +469,13 @@ async function exportParts(){
     }
     const blob = await zip.generateAsync({type:"blob"});
     const zipName = `${prefix}.zip`;
-    const done = `Exported ${names.length} parts.`;
+    const done = `Exported ${names.length} part${names.length===1?"":"s"}.`;
     const download = () => {
-      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=zipName;
+      const url = URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download=zipName;
       document.body.appendChild(a); a.click(); a.remove();
+      // Hold the blob long enough for the click to start the download, then release it.
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
       setOut(done,"ok");
     };
     const f = new File([blob], zipName, {type:"application/zip"});
