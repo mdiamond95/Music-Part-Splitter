@@ -23,7 +23,7 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
   "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
-  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage",
+  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage", "hasPieceNumber",
 ];
 
 function loadCore(){
@@ -45,9 +45,7 @@ async function readPages(file){
     const vp = page.getViewport({ scale: 1 });
     const tc = await page.getTextContent();
     core.scanMeta(core.uprightItems(tc.items), numbers, titles);
-    const rec = core.pageRecord(i, tc.items, vp.height);
-    rec.size = `${Math.round(vp.width)}x${Math.round(vp.height)}`;
-    pages.push(rec);
+    pages.push(core.pageRecord(i, tc.items, vp.height, vp.width));
   }
   await pdf.destroy();
   return { pages, numbers, titles };

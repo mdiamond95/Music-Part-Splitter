@@ -128,7 +128,7 @@
 
 // Canonical part list, in band order. Each has one or more regexes tested on normalised header text.
 const PARTS = [
-  ["Full Score",        [/\bFULL SCORE\b/, /^SCORE\b/]],
+  ["Full Score",        [/\bFULL SCORE\b/, /(?<!PERCUSSION\s{0,3})\bSCORE\b/, /\bCONDUCTOR\b/]],
   ["Flute/Oboe",        [/\bFLUTE\b/, /\bOBOE\b/]],
   ["Soprano Eb",        [/\bSOPRANO\b/]],
   ["Solo Cornet Bb",    [/\bSOLO CORNET/]],
@@ -218,18 +218,23 @@ function textOf(words){ return words.map(w=>w.str).join(" "); }
 // accumulator would otherwise commit to "2nd Baritone" before "B.C." had even been read. Only a
 // strictly longer match displaces the incumbent, so a later cue cannot take over on equal footing.
 const LOOKAHEAD = 4;
+// Abbreviations run down the left margin of a score page: Sop., Solo Cor., 1st Hn.
+const ABBREV = /\b(SOP|COR|HN|BAR|TROM|TBN|EUPH|PERC)\.?$/;
 function detectPart(items){
-  let acc="", best=null, bestLen=0, after=-1;
+  let acc="", best=null, bestLen=0, after=-1, ev=null;
   for(const w of stitch(items)){
     acc += " "+w.str;
     const h = norm(acc);
     for(const [name,res] of PARTS) for(const r of res){
       const m = h.match(r);
-      if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; if(after<0) after=0; }
+      if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; ev=w; if(after<0) after=0; }
     }
     if(after>=0 && ++after > LOOKAHEAD) break;
   }
-  return best;
+  // Weak evidence is a match that does not look like a part label: the small type of a score's
+  // instrument column, an abbreviation from that column, or a word swallowed by a prose paragraph.
+  const weak = !!ev && (ev.size < 9 || ABBREV.test(norm(ev.str)) || ev.str.length > 40);
+  return {part:best, weak};
 }
 function safeName(s){ return s.replace(/[\\/:*?"<>|]/g,"-").replace(/\s+/g," ").trim(); }
 
@@ -244,27 +249,33 @@ function headerItems(upright, vpHeight){ return upright.filter(it=>it.transform[
 // (notation fonts emit single non-letter glyphs at large sizes).
 const FIRST_PAGE_PT = 12;
 function titleSize(words){
-  const lettered = words.filter(w=>/[A-Za-z]/.test(w.str) && w.str.trim().length>=2);
+  const lettered = words.filter(w=>/[A-Za-z]{3,}/.test(w.str));
   return lettered.length ? Math.max(...lettered.map(w=>w.size)) : 0;
 }
 // A page that opens a new part must never continue the previous one, even when its own label is
 // unrecognised — inheriting there would silently file it under the wrong neighbour. A piece number
 // or a title block in the header both mean "this page starts something".
+function hasPieceNumber(words){
+  return words.some(w=>/^No\.?\s*\d{2,5}$/i.test(w.str.trim()) && w.size>=11);
+}
 function isFirstPage(words){
-  if(words.some(w=>/^No\.?\s*\d{2,5}$/i.test(w.str.trim()) && w.size>=11)) return true;
-  return titleSize(words) >= FIRST_PAGE_PT;
+  return hasPieceNumber(words) || titleSize(words) >= FIRST_PAGE_PT;
 }
 
 // Everything the app knows about a page before the user touches anything.
-function pageRecord(n, items, vpHeight){
+function pageRecord(n, items, vpHeight, vpWidth){
   const upright = uprightItems(items);
   const header = headerItems(upright, vpHeight);
   const headerWords = stitch(header);
+  const hit = detectPart(header);
   return {
     n,
-    detected: detectPart(header),   // what the header says; never changes after load
+    detected: hit.part,             // what the header says; never changes after load
+    weak: hit.weak,                 // the match does not look like a part label
     override: undefined,            // what the user chose in the dropdown, if anything
     first: isFirstPage(headerWords),// opens a new part, so it may not inherit
+    number: hasPieceNumber(headerWords),
+    size: `${Math.round(vpWidth)}x${Math.round(vpHeight)}`,
     header: textOf(headerWords),
     key: norm(textOf(stitch(upright))),
   };
@@ -291,14 +302,21 @@ function plan(pages, dedupe){
   const status = [];
   let carried = null;   // effective part of the previous page
   let source = 0;       // page that last carried a part of its own, for the "cont. of p.N" label
+  let runSize = null;   // page size the current part started on
   for(const p of pages){
+    // A full score runs for many pages and only the first is labelled. Inside that run the title block
+    // cannot mark a first page — every score page repeats the title — so the run is bounded by page
+    // size instead, which is what actually separates a landscape score from the portrait parts behind
+    // it, and by the piece number the brief calls out. While the run holds, weak matches from the
+    // score's own instrument column are ignored rather than starting a bogus part.
+    const scoreRun = carried === "Full Score" && p.size === runSize && !p.number;
     let part = null, inherited = false;
     if(p.override === SKIP)   part = null;
     else if(p.override)       part = p.override;
-    else if(p.detected)       part = p.detected;
-    else if(carried && !p.first){ part = carried; inherited = true; }
+    else if(p.detected && !(scoreRun && p.weak)) part = p.detected;
+    else if(carried && (!p.first || scoreRun)){ part = carried; inherited = true; }
 
-    if(part && !inherited) source = p.n;
+    if(part && !inherited){ source = p.n; runSize = p.size; }
     carried = part;
 
     if(!part){ status[p.n]={dropped:true,label:"skipped",part:null,inherited:false}; continue; }
@@ -344,7 +362,7 @@ async function load(file){
     const vp = page.getViewport({scale:1});
     const tc = await page.getTextContent();
     scanMeta(uprightItems(tc.items), numbers, titles);
-    const rec = pageRecord(i, tc.items, vp.height);
+    const rec = pageRecord(i, tc.items, vp.height, vp.width);
 
     // small thumbnail for the review table
     const tvp = page.getViewport({scale: 110/vp.width});
