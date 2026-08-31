@@ -243,6 +243,26 @@ function uprightItems(items){ return items.filter(it=>Math.abs(it.transform[1])<
 // transform[5] is y, measured bottom-up, so the header band is the top 20% of the page.
 function headerItems(upright, vpHeight){ return upright.filter(it=>it.transform[5] > vpHeight*0.80); }
 
+// A score page names every instrument in the band down its left margin, so it matches many part
+// labels at once where a part page matches only its own. Counting NON-OVERLAPPING matched regions
+// keeps three regexes hitting one "2nd Baritone/Trombone B.C." label from reading as three
+// instruments. Measured over all three fixtures, 116 pages: every part page matches at most 2, while
+// the score pages match 5 and 12. Four sits in that empty band. This is a page-level signal and does
+// not care how big the labels are, which is the case the weak-evidence test cannot see.
+const SCORE_LABELS = 4;
+function labelCount(items){
+  const h = norm(textOf(stitch(items)));
+  const spans = [];
+  for(const [name,res] of PARTS) for(const r of res){
+    const m = h.match(r);
+    if(m) spans.push([m.index, m.index + m[0].length]);
+  }
+  spans.sort((a,b)=>a[0]-b[0]);
+  let n = 0, end = -1;
+  for(const [from,to] of spans) if(from >= end){ n++; end = to; }
+  return n;
+}
+
 // A part's first page carries a title block; its continuation pages carry only a small running head.
 // Measured across the local fixtures: title blocks are set at 15.5-24pt and running heads at 8-10pt,
 // so 12pt sits in a wide empty gap. Music glyphs are excluded by requiring a letter and two characters
@@ -268,8 +288,11 @@ function pageRecord(n, items, vpHeight, vpWidth){
   const header = headerItems(upright, vpHeight);
   const headerWords = stitch(header);
   const hit = detectPart(header);
+  const labels = labelCount(upright);
   return {
     n,
+    labels,                         // distinct part labels on the page; many means a score
+    score: labels >= SCORE_LABELS,
     detected: hit.part,             // what the header says; never changes after load
     weak: hit.weak,                 // the match does not look like a part label
     override: undefined,            // what the user chose in the dropdown, if anything
@@ -313,6 +336,9 @@ function plan(pages, dedupe){
     let part = null, inherited = false;
     if(p.override === SKIP)   part = null;
     else if(p.override)       part = p.override;
+    // Takes precedence over detection: a score page carries real, full-size part labels, and one of
+    // them would otherwise win outright. Only an explicit choice in the dropdown outranks it.
+    else if(p.score)          part = "Full Score";
     else if(p.detected && !(scoreRun && p.weak)) part = p.detected;
     else if(carried && (!p.first || scoreRun)){ part = carried; inherited = true; }
 

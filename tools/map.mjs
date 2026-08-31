@@ -23,7 +23,7 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
   "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
-  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage", "hasPieceNumber",
+  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage", "hasPieceNumber", "labelCount",
 ];
 
 function loadCore(){
@@ -62,12 +62,12 @@ async function mapFile(file, dedupe){
   console.log(`piece numbers: ${nums.join(", ") || "not found"}`);
   if(titles.size) console.log(`titles: ${[...titles].join(" | ")}`);
   console.log("");
-  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",16)}new header`);
+  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",16)}new lbl header`);
   console.log("-".repeat(110));
   for(const p of pages){
     const s = status[p.n];
     console.log(
-      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 16) + (p.first ? "1st " : "    ") +
+      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 16) + (p.first ? "1st " : "    ") + pad(p.score ? `S${p.labels}` : p.labels, 4) +
       core.norm(p.header).slice(0, 60)
     );
   }
