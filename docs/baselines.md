@@ -138,3 +138,68 @@ kept plus 16 dropped, not 15. The harness has reported 16/16 at every commit rec
 including the pre-CHANGES2 baseline, so nothing regressed: the target was simply mis-stated.
 
 Corrected to 16/16 in both places. The enumerated part list was already right and is unchanged.
+
+## CHANGES3 Phase 1 — combined-label inventory (no code change)
+
+Every fixture's extracted text was searched for a joiner (`/` or `&`) between two known instrument
+names, in the header band that detection reads and again across the whole page. A sixth file,
+`encore.pdf.pdf` (70 pages, Christmas Encore Medley, Arthur Gullidge Series AGS2004, score-fronted),
+is present in `fixtures/` and was inventoried too; it is the same publisher's set as `multipage.pdf`
+and carries the same shared parts.
+
+### Distinct combined labels found
+
+| printed label | fixture · pages | group today | verdict |
+| --- | --- | --- | --- |
+| `1st Baritone/Trombone Bb` | `multipage.pdf` 13, 14 · `encore.pdf.pdf` 35, 36 | **1st Baritone Bb** | silently wrong |
+| `2nd Baritone/Trombone Bb` | `multipage.pdf` 15, 16 · `encore.pdf.pdf` 37, 38 | **2nd Baritone Bb** | silently wrong |
+| `1st. Baritone/Trombone B.C.` | `multipage.pdf` 39, 40 · `encore.pdf.pdf` 61, 62 | **1st Baritone B.C.** | silently wrong |
+| `2nd Baritone/Trombone B.C.` | `multipage.pdf` 41, 42 · `encore.pdf.pdf` 63, 64 | **2nd Baritone B.C.** | silently wrong |
+| `Flute/Oboe` | `multipage.pdf` 33, 34 · `score.pdf` 30 · `encore.pdf.pdf` 55, 56 | Flute/Oboe | already right |
+| `String/Electric Bass` | `multipage.pdf` 47, 48 · `score.pdf` 36 · `encore.pdf.pdf` 69, 70 | String Bass | right group, lossy name |
+
+`regression.pdf`, `carols.pdf` and `scorefront.pdf` contain no combined labels at all. Their only
+joiner text is music notation (`&` clefs, `/` repeat slashes) and the copyright line
+"© 2023 SP&S, a division of…", none of which name two instruments.
+
+### The silent-wrong-assignment cases
+
+Eight pages across two fixtures — `multipage.pdf` 13, 14, 15, 16, 39, 40, 41, 42 (and the same eight
+labels on `encore.pdf.pdf` 35–38, 61–64). Each is a Baritone/Trombone shared part that today is
+filed under the Baritone half alone, so the Trombone player's part arrives in a file named for the
+Baritone and the label the page actually prints appears nowhere. This is what CHANGES3 exists to fix.
+
+Why it happens: `PARTS` has no plain `Trombone` entry, and `1st Baritone B.C.` is written
+`/\b1ST\.?\s*BARITONE\b.{0,60}?\bB\.C\./` — a regex whose 60-character tolerance reaches straight
+across `/Trombone` to the trailing clef, so the longest-match rule settles on the Baritone half with
+nothing to outrank it.
+
+### Things that do not fit the "instrument joiner instrument" pattern
+
+- `String/Electric Bass` — the first half is not an instrument name and the second is qualified,
+  not ordinal-prefixed. It is a shared part, but it is already carried by the dedicated
+  `String Bass` entry and is deliberately left there rather than forced through the new pattern.
+- `Flute/Oboe` is both a real combined label and an existing `PARTS` entry. The generic pattern must
+  reconstruct exactly the name that entry already uses, or `score.pdf` and `multipage.pdf` change.
+- Prose, not labels: `score.pdf` p.2's Score Notes discuss "Trombone/Baritone in Bar 36" and
+  "Baritone/Trombone, 2nd Horn". Both sit well below the header band, so detection never sees them,
+  but the whole-page `labelCount` does.
+- `encore.pdf.pdf` p.18 prints "Words/Music: English 16th Century Folk Song" — a slash label whose
+  halves are not instruments.
+- `encore.pdf.pdf` p.3 is a score page whose instrument column includes `1st Baritone/` and
+  `2nd Baritone/`; it already resolves to Full Score on the page-level score signal (14 labels).
+
+### The printed label is not one text item
+
+CHANGES3 asks for the "same single-text-item constraint as series parsing where applicable". It is
+not applicable here. On every real occurrence the label wraps to a second line and pdf.js returns
+the halves as separate items with the centred piece title read between them:
+
+```
+p.13  "1st Baritone/"  "Christmas Encore Medley"  "Trombone B"  "b"
+p.39  "1st. Baritone/" "Christmas Encore Medley"  "Trombone B.C."
+p.14  "1st Baritone/"  "Trombone B"  "b"                (continuation page, no title)
+```
+
+So the pattern has to tolerate a bounded run of unrelated text after the joiner, the same way the
+existing `B.C.` qualifiers already do. It is bounded and only ever allowed *after* the joiner.
