@@ -5,87 +5,177 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#F6F3EC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15140F" media="(prefers-color-scheme: dark)">
 <title>Part Splitter</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
+  /* Vertical rhythm is an 8px grid: every margin, padding and gap below is a multiple of --u,
+     so the page keeps one spacing scale instead of the assorted 4/6/14/18/22px it grew. */
   :root{
-    --paper:#F6F3EC; --paper-2:#EDE8DD; --ink:#1C1A17; --ink-2:#5C5750; --rule:#C9C2B4;
-    --red:#8E1B2A; --red-2:#B63A48; --ok:#2E6B3E;
+    color-scheme:light dark;
+    --u:8px;
+    --paper:#F6F3EC; --paper-2:#EFEAE0; --card:#FFFFFF;
+    --ink:#1C1A17; --ink-2:#5C5750; --ink-3:#8A8378;
+    --rule:#D6CFC0; --rule-soft:#E8E2D5; --stave:#B9B1A0;
+    /* --red paints surfaces and carries white text; --red-text is the same idea sitting on paper.
+       They are separate tokens only so dark mode can lighten one without wrecking contrast on the other. */
+    --red:#8E1B2A; --red-text:#8E1B2A; --red-2:#B63A48; --red-tint:#FBF0F1; --red-line:#E0C0C5;
+    --ok:#2E6B3E;
+    --shadow:0 1px 2px rgba(28,26,23,.04), 0 6px 20px rgba(28,26,23,.05);
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
     --mono:"SF Mono",ui-monospace,Menlo,monospace;
   }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#15140F; --paper-2:#1F1D17; --card:#1B1914;
+      --ink:#EDE8DD; --ink-2:#ABA497; --ink-3:#7E776B;
+      --rule:#3B3830; --rule-soft:#2B2922; --stave:#524D43;
+      --red:#A8303F; --red-text:#E48B95; --red-2:#E07C86; --red-tint:#2B1A1D; --red-line:#5C333A;
+      --ok:#7FC894;
+      --shadow:none;
+    }
+  }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);-webkit-text-size-adjust:100%}
-  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
-  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:22px}
-  h1{font-family:var(--display);font-weight:400;font-size:34px;letter-spacing:-.01em;margin:0}
-  h1 em{font-style:italic;color:var(--red)}
-  .sub{color:var(--ink-2);font-size:14px;margin-top:4px}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+  .wrap{max-width:900px;margin:0 auto;padding:calc(var(--u)*4) calc(var(--u)*2.5);
+        padding-bottom:calc(var(--u)*10 + env(safe-area-inset-bottom))}
 
-  /* Drop zone drawn as a stave */
-  .drop{position:relative;border:0;border-radius:6px;background:var(--paper-2);padding:40px 24px;text-align:center;cursor:pointer;
-        background-image:repeating-linear-gradient(to bottom,transparent 0 22px,var(--rule) 22px 23px);background-size:100% 115px;background-position:0 center;background-repeat:no-repeat}
-  .drop.over{outline:2px solid var(--red);outline-offset:2px}
-  .drop .brace{font-family:var(--display);font-size:64px;line-height:1;color:var(--red);display:block}
-  .drop strong{display:block;font-family:var(--display);font-size:22px;font-weight:400;margin-top:6px}
-  .drop span{display:block;color:var(--ink-2);font-size:14px;margin-top:6px}
+  header{margin-bottom:calc(var(--u)*4)}
+  h1{font-family:var(--display);font-weight:400;font-size:clamp(30px,7vw,38px);line-height:1.1;letter-spacing:-.01em;margin:0}
+  h1 em{font-style:italic;color:var(--red-text)}
+  .sub{color:var(--ink-2);font-size:15px;line-height:1.5;margin-top:var(--u);max-width:46ch}
+
+  /* Load progress, kept at the top of the page: on a 79-page score the status line down in the
+     review card is off-screen while the read is happening, which is exactly when it matters. */
+  .progress{margin-bottom:calc(var(--u)*3)}
+  .ptrack{height:6px;border-radius:3px;background:var(--paper-2);overflow:hidden}
+  .pbar{height:100%;width:0;background:var(--red);border-radius:3px}
+  @media (prefers-reduced-motion:no-preference){.pbar{transition:width .18s linear}}
+  .ptext{margin-top:var(--u);font-size:14px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+  /* Drop zone: a real five-line stave in the SVG below, brace sized to it, hairlines that stay
+     hairlines at any width (non-scaling-stroke). The old version was a repeating-linear-gradient
+     that clipped mid-line and read as stray rules. */
+  .drop{position:relative;display:block;text-align:center;cursor:pointer;
+        background:var(--card);border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow);
+        padding:calc(var(--u)*6) calc(var(--u)*3)}
+  .drop.over{border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
+  .drop .stave{display:block;width:min(280px,78%);height:auto;margin:0 auto calc(var(--u)*3)}
+  .drop .stave line,.drop .stave path{vector-effect:non-scaling-stroke}
+  .drop .stave .ln{stroke:var(--stave);stroke-width:.9}
+  .drop .stave .bar{stroke:var(--stave);stroke-width:1.2}
+  .drop .stave .brace{stroke:var(--red-text);stroke-width:1.8;stroke-linecap:round;fill:none}
+  .drop strong{display:block;font-family:var(--display);font-size:23px;font-weight:400;line-height:1.25}
+  .drop span{display:block;color:var(--ink-2);font-size:14px;margin-top:var(--u)}
   .drop input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+  @media (prefers-reduced-motion:no-preference){.drop{transition:border-color .15s,box-shadow .15s}}
 
-  .card{background:#fff;border:1px solid var(--rule);border-radius:6px;padding:18px 20px;margin-top:18px}
-  .card h2{font-family:var(--display);font-weight:400;font-size:20px;margin:0 0 4px}
-  .meta{color:var(--ink-2);font-size:14px}
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow);
+        padding:calc(var(--u)*3);margin-top:calc(var(--u)*3)}
+  .card h2{font-family:var(--display);font-weight:400;font-size:21px;line-height:1.2;margin:0 0 var(--u)}
+  .meta{color:var(--ink-2);font-size:14px;line-height:1.5}
   .meta b{color:var(--ink);font-weight:600}
 
-  .opts{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-top:14px}
-  .opt label{display:block;font-size:13px;color:var(--ink-2);margin-bottom:4px}
-  .opt input[type=text]{width:100%;font:inherit;font-size:16px;padding:9px 10px;border:1px solid var(--rule);border-radius:4px;background:var(--paper)}
-  .toggle{display:flex;align-items:center;gap:10px;font-size:15px;padding-top:22px}
-  .toggle input{width:20px;height:20px;accent-color:var(--red)}
-  .hint{font-family:var(--mono);font-size:12px;color:var(--ink-2);margin-top:6px}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*2) calc(var(--u)*3);margin-top:calc(var(--u)*3)}
+  .opt label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;margin-bottom:var(--u)}
+  .opt input[type=text]{width:100%;font:inherit;font-size:16px;padding:calc(var(--u)*1.5);border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink)}
+  .toggle{display:flex;align-items:center;gap:var(--u);font-size:15px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);align-self:end;padding-bottom:calc(var(--u)*1.5)}
+  .toggle input{width:20px;height:20px;flex:none;accent-color:var(--red)}
+  .hint{font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--ink-3);margin-top:var(--u);word-break:break-word}
 
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;text-align:left;padding:8px 6px;border-bottom:1px solid var(--rule)}
-  td{padding:8px 6px;border-bottom:1px solid var(--paper-2);vertical-align:middle;font-size:15px}
-  td.n{font-family:var(--mono);font-size:13px;color:var(--ink-2);width:44px}
-  td.th img{width:54px;height:auto;border:1px solid var(--rule);display:block;background:#fff}
-  select{font:inherit;font-size:15px;padding:7px 8px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);max-width:100%}
-  select.warn{border-color:var(--red);background:#FBEDEF}
-  td.status{font-size:13px;color:var(--ink-2);width:110px}
-  td.status.dup{color:var(--red)}
-  tr.dropped td{opacity:.55}
+  table{width:100%;border-collapse:collapse;margin-top:calc(var(--u)*2)}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;text-align:left;padding:var(--u);border-bottom:1px solid var(--rule)}
+  th.status,td.status{text-align:right}
+  td{padding:calc(var(--u)*1.5) var(--u);border-bottom:1px solid var(--rule-soft);vertical-align:middle;font-size:15px}
+  td.n{font-family:var(--mono);font-size:13px;color:var(--ink-3);width:44px;font-variant-numeric:tabular-nums}
+  /* Fixed 3:4 box: portrait parts and landscape score pages letterbox into the same slot, so rows
+     keep their height instead of jumping about as each thumbnail decodes. */
+  th.th{width:72px}
+  td.th img{width:54px;height:72px;object-fit:contain;object-position:center;border:1px solid var(--rule);border-radius:2px;display:block;background:#fff}
+  select{font:inherit;font-size:15px;padding:calc(var(--u)*1.25) calc(var(--u)*1.5);border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);max-width:100%}
+  /* "Not detected" has to be unmissable without shouting: a tinted field and a red edge, no siren. */
+  select.warn{border-color:var(--red-line);background:var(--red-tint);color:var(--red-text)}
+  td.status{font-size:13px;color:var(--ink-2);width:120px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  td.status.dup{color:var(--ink-3)}
+  tr:has(select.warn) td.status{color:var(--red-text);font-weight:600}
+  tr.dropped td.n,tr.dropped td.th,tr.dropped td.status{opacity:.55}
+  tr.dropped td.th img{opacity:.55}
 
-  .actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
-  button{font:inherit;font-size:16px;padding:12px 20px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
-  button.primary{background:var(--red);border-color:var(--red)}
-  button.quiet{background:transparent;color:var(--ink)}
-  button:disabled{opacity:.45;cursor:default}
-  button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--red-2);outline-offset:2px}
-  .out{font-size:14px;color:var(--ink-2)}
+  .actions{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);align-items:center;margin-top:calc(var(--u)*3)}
+  /* One primary. Everything else is a quiet outline so the eye lands on Export. */
+  button{font:inherit;font-size:16px;font-weight:500;padding:calc(var(--u)*1.5) calc(var(--u)*2.5);border-radius:8px;
+         border:1px solid var(--rule);background:transparent;color:var(--ink);cursor:pointer}
+  button.primary{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+  button.quiet{background:transparent;color:var(--ink-2)}
+  button:disabled{opacity:.4;cursor:default}
+  button:focus-visible,select:focus-visible,input:focus-visible,.drop:focus-within{outline:3px solid var(--red-2);outline-offset:2px}
+  .out{font-size:14px;line-height:1.4;color:var(--ink-2)}
   .out.ok{color:var(--ok)}
-  .out.err{color:var(--red)}
-  .files{margin:10px 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:13px}
-  .files li{padding:4px 0;border-bottom:1px dashed var(--paper-2)}
-  .files li b{font-weight:600}
+  .out.err{color:var(--red-text)}
+  .files{margin:calc(var(--u)*2) 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:13px}
+  .files li{padding:var(--u) 0;border-bottom:1px solid var(--rule-soft);word-break:break-word}
+  .files li b{font-weight:600;color:var(--ink)}
   .hidden{display:none}
-  @media (max-width:600px){.opts{grid-template-columns:1fr}.toggle{padding-top:0}td.th{display:none}th.th{display:none}}
-  @media (prefers-reduced-motion:no-preference){.drop{transition:outline-color .15s}}
+
+  @media (max-width:600px){
+    .opts{grid-template-columns:1fr}
+    .toggle{align-self:start;padding-bottom:0}
+  }
+  /* Phones: the four columns cannot survive 480px, so each page becomes a card — thumbnail on the
+     left (it is the whole point of the review step, so it stays visible), page number and status on
+     one line, the part dropdown full width underneath. */
+  @media (max-width:480px){
+    .wrap{padding-left:calc(var(--u)*2);padding-right:calc(var(--u)*2)}
+    .card{padding:calc(var(--u)*2.5) calc(var(--u)*2)}
+    table,tbody,tr,td{display:block;width:auto}
+    thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+    tr{display:grid;grid-template-columns:64px minmax(0,1fr);grid-template-areas:"thumb head" "thumb part";
+       column-gap:calc(var(--u)*1.5);row-gap:var(--u);align-items:center;
+       padding:calc(var(--u)*2) 0;border-bottom:1px solid var(--rule-soft)}
+    td{border:0;padding:0}
+    td.n{grid-area:head;width:auto;align-self:end}
+    td.n::after{content:""}
+    td.th{grid-area:thumb;align-self:start}
+    td.th img{width:64px;height:85px}
+    tr>td:nth-child(3){grid-area:part}
+    tr>td:nth-child(3) select{width:100%}
+    td.status{grid-area:head;width:auto;text-align:right;align-self:end}
+    .actions{gap:var(--u)}
+    .actions button{flex:1 1 auto}
+    .actions .out{flex:1 0 100%}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>Part <em>Splitter</em></h1>
-      <div class="sub">Turn a set-of-parts PDF into one file per part. Everything runs on this device; nothing is uploaded.</div>
-    </div>
+    <h1>Part <em>Splitter</em></h1>
+    <div class="sub">Turn a set-of-parts PDF into one file per part. Everything runs on this device; nothing is uploaded.</div>
   </header>
 
+  <div class="progress hidden" id="progress" role="status" aria-live="polite">
+    <div class="ptrack"><div class="pbar" id="pbar"></div></div>
+    <div class="ptext" id="ptext"></div>
+  </div>
+
   <label class="drop" id="drop">
-    <span class="brace">{</span>
+    <svg class="stave" viewBox="0 0 264 48" aria-hidden="true" focusable="false">
+      <path class="brace" d="M17 6 C 10 13, 15 20, 8 24 C 15 28, 10 35, 17 42"/>
+      <g class="ln-group">
+        <line class="ln" x1="24" y1="8" x2="256" y2="8"/>
+        <line class="ln" x1="24" y1="16" x2="256" y2="16"/>
+        <line class="ln" x1="24" y1="24" x2="256" y2="24"/>
+        <line class="ln" x1="24" y1="32" x2="256" y2="32"/>
+        <line class="ln" x1="24" y1="40" x2="256" y2="40"/>
+      </g>
+      <line class="bar" x1="24" y1="8" x2="24" y2="40"/>
+      <line class="bar" x1="256" y1="8" x2="256" y2="40"/>
+    </svg>
     <strong>Choose a set-of-parts PDF</strong>
     <span>Tap to pick from Files, or drop a PDF here</span>
     <input type="file" id="file" accept="application/pdf,.pdf">
@@ -110,7 +200,7 @@
     <h2>Check each page</h2>
     <div class="meta">Detected from the page header. Fix any that are wrong before exporting.</div>
     <table>
-      <thead><tr><th>Pg</th><th class="th"></th><th>Part</th><th>Status</th></tr></thead>
+      <thead><tr><th>Pg</th><th class="th"></th><th>Part</th><th class="status">Status</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="actions">
@@ -382,6 +472,7 @@ function currentPlan(){ return plan(state.pages, $("dedupe").checked); }
 
 async function load(file){
   setOut("Reading pages…");
+  showProgress(0,0,"Reading pages…");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({data:bytes.slice()}).promise;
   const pages = [];
@@ -402,6 +493,7 @@ async function load(file){
 
     pages.push(rec);
     setOut(`Reading pages… ${i}/${pdf.numPages}`);
+    showProgress(i, pdf.numPages, `Reading pages… ${i}/${pdf.numPages}`);
   }
 
   const nums = [...numbers].sort((a,b)=>a-b);
@@ -413,6 +505,7 @@ async function load(file){
   $("prefix").value = nums.length ? nums.join("-") : file.name.replace(/\.pdf$/i,"");
   $("summary").classList.remove("hidden"); $("review").classList.remove("hidden");
   drop.classList.add("hidden");
+  hideProgress();
   setOut("");
   render(); updateExample();
 }
@@ -447,6 +540,15 @@ function updateExample(){
 }
 
 function setOut(msg,cls){ const o=$("out"); o.textContent=msg; o.className="out "+(cls||""); }
+
+// Load progress lives at the top of the page as well as in the status line: on a 79-page score
+// the review card is far below the fold while the read runs, so #out alone tells nobody anything.
+function showProgress(done,total,msg){
+  $("progress").classList.remove("hidden");
+  $("pbar").style.width = total ? `${Math.round(done/total*100)}%` : "0%";
+  $("ptext").textContent = msg;
+}
+function hideProgress(){ $("progress").classList.add("hidden"); $("pbar").style.width="0%"; }
 
 async function exportParts(){
   const {groups} = currentPlan();
