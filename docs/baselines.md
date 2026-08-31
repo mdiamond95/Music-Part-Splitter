@@ -128,3 +128,13 @@ between prefix and part name — so a filename cannot mix the two dashes:
   capitalised words: a looser pattern reads that as series "SASB 126 TB" number 857.
 - The "cover present but no series line" fallback has no fixture behind it. It is covered by
   `npm run check` instead.
+
+## Correction to CHANGES.md's regression bar
+
+CHANGES.md stated the regression bar for `regression.pdf` as "17 parts, 15 dups", in the ground
+rules and again in the Phase 2 acceptance. Both figures were wrong, and had been since the brief was
+written — the part list enumerated alongside them names 16 parts, not 17, and 32 pages split as 16
+kept plus 16 dropped, not 15. The harness has reported 16/16 at every commit recorded above,
+including the pre-CHANGES2 baseline, so nothing regressed: the target was simply mis-stated.
+
+Corrected to 16/16 in both places. The enumerated part list was already right and is unchanged.

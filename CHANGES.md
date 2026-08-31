@@ -70,7 +70,7 @@ Codespaces stop after 30 minutes idle. Reopen it from the same **Code → Codesp
 
 - Keep everything in `index.html`. Don't split into modules or add a bundler.
 - Don't commit any sheet-music PDFs to this public repo — they're licensed to one corps. Test against local files that are gitignored (add `fixtures/` to `.gitignore`).
-- Regression bar: the existing 32-page test set (`goodness-of-god---set-of-parts.pdf`, two pieces per page, 1389/1390) must still produce exactly 17 parts with the same page assignments as today: Soprano, 1st Cornet, 2nd Cornet, 1st Horn, 2nd Horn, 1st Baritone, 2nd Baritone, 1st Trombone, 2nd Trombone, Bass Trombone, Euphonium, Bass Eb, Bass Bb, Percussion I, Percussion II, Percussion Score — one page each — and 15 pages dropped as duplicates.
+- Regression bar: the existing 32-page test set (`goodness-of-god---set-of-parts.pdf`, two pieces per page, 1389/1390) must still produce exactly 16 parts with the same page assignments as today: Soprano, 1st Cornet, 2nd Cornet, 1st Horn, 2nd Horn, 1st Baritone, 2nd Baritone, 1st Trombone, 2nd Trombone, Bass Trombone, Euphonium, Bass Eb, Bass Bb, Percussion I, Percussion II, Percussion Score — one page each — and 16 pages dropped as duplicates.
 - Before touching detection logic, build the verification harness in Phase 0 so you can see the page→part mapping without a browser.
 
 ## Phase 0 — Node verification harness (no behaviour change)
@@ -113,7 +113,7 @@ Running heads on continuation pages in SP&S editions look like `2 1st CORNET B�
 - In the export file list, show the page count per part (already does) — with multi-page parts this is now the main sanity check, so keep it prominent.
 
 ### Acceptance
-- Regression set: unchanged result (17 parts, 15 dups).
+- Regression set: unchanged result (16 parts, 16 dups).
 - A multi-page set (user will provide locally): each part's PDF contains all of its pages in original order, duplicates removed, no page assigned to the wrong neighbour. Print the harness map for the user to eyeball before declaring done.
 
 ## Phase 3 — Full score as its own file
