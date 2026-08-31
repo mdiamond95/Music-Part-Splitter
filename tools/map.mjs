@@ -24,6 +24,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
   "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
   "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage", "hasPieceNumber", "labelCount",
+  "matchCombined", "partOrder", "partOptions",
   "seriesName", "defaultPrefix", "SEP",
 ];
 
@@ -70,12 +71,12 @@ async function mapFile(file, dedupe){
   console.log(`default prefix: ${core.safeName(core.defaultPrefix(pages, status, numbers, basename(file)))}`);
   console.log(`example file:   ${core.safeName(core.defaultPrefix(pages, status, numbers, basename(file)))}${core.SEP}1st Cornet Bb.pdf`);
   console.log("");
-  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",20)}new lbl header`);
+  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",28)}${pad("status",20)}new lbl header`);
   console.log("-".repeat(110));
   for(const p of pages){
     const s = status[p.n];
     console.log(
-      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 20) + (p.first ? "1st " : "    ") + pad(p.score ? `S${p.labels}` : p.labels, 4) +
+      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 28) + pad(s.label, 20) + (p.first ? "1st " : "    ") + pad(p.score ? `S${p.labels}` : p.labels, 4) +
       core.norm(p.header).slice(0, 60)
     );
   }
@@ -87,11 +88,11 @@ async function mapFile(file, dedupe){
   console.log("-".repeat(110));
   console.log(`${groups.size} parts · ${kept} pages kept (${inherited} by inheritance) · ${dups} dropped as duplicates · ${skipped} skipped\n`);
 
-  const order = core.PARTS.map(p => p[0]);
-  const names = [...groups.keys()].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+  // Band order, which for a shared part means "just after the first of its two instruments".
+  const names = [...groups.keys()].sort((a,b)=>core.partOrder(a)-core.partOrder(b));
   for(const part of names){
     const pg = groups.get(part);
-    console.log(`  ${pad(part, 20)} ${pg.length} page${pg.length===1?"":"s"}  [${pg.join(", ")}]`);
+    console.log(`  ${pad(part, 28)} ${pg.length} page${pg.length===1?"":"s"}  [${pg.join(", ")}]`);
   }
   return { file, parts: groups.size, kept, dups, skipped };
 }

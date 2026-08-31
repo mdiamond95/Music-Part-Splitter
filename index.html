@@ -261,6 +261,77 @@ const SKIP_LABEL = "Skip this page";
 function norm(s){
   return s.replace(/[♭𝄫]/g,"b").replace(/♯/g,"#").toUpperCase().replace(/\s+/g," ").trim();
 }
+// A set sometimes prints one part for two instruments: "Baritone/Trombone", "1st Baritone/2nd
+// Trombone Bb", "2nd Baritone/Trombone B.C.". That is one part in the set and has to come out as one
+// file under the label the page prints. PARTS alone cannot do it — "1st Baritone B.C." is written
+// with a 60-character tolerance that reaches straight across "/Trombone" to the trailing clef, so
+// the shared part lands silently inside the Baritone's own file. The shape is recognised
+// generically rather than by listing the combinations a publisher might print: an optional ordinal,
+// an instrument, a joiner, an optional second ordinal, a second instrument, an optional key or clef.
+const ORD  = "(?:(1ST|2ND|3RD|4TH|SOLO|REPIANO)\\.?\\s*)?";
+const INST = "(FLUTE|OBOE|CLARINET|SOPRANO|CORNET|FLUGEL(?: HORN)?|HORN|BARITONE|TROMBONE|EUPHONIUM|TUBA|TIMPANI|DRUMS|PERCUSSION)";
+// Ends on a lookahead rather than \b, because "B.C." ends in a full stop and \b would never fire.
+const KEY  = "(?:\\s*(?:IN )?(B ?B|E ?B|B\\.C\\.|T\\.C\\.|F)(?![A-Z0-9]))?";
+// The two halves are not adjacent in reading order on any of the local sets: the label wraps to a
+// second line and the centred piece title is read between them, so p.13 of multipage.pdf arrives as
+// "1st Baritone/" · "Christmas Encore Medley" · "Trombone B" · "b". A bounded run of other text is
+// therefore allowed after the joiner, the same tolerance the B.C. entries in PARTS already carry.
+// It is allowed only there: the joiner itself must sit against the first instrument, which is what
+// keeps prose like "String/Electric Bass" and "Words/Music: …" out.
+// The gap is lazily optional — tried only after a second instrument fails to follow the joiner
+// directly — so that in "1st Baritone/2nd Trombone" the second ordinal is read as an ordinal and
+// not swallowed as filler.
+const COMBINED_SRC = `\\b${ORD}${INST}\\s*([/&])\\s*(?:\\S.{0,40}?\\s)??${ORD}${INST}${KEY}`;
+const COMBINED = new RegExp(COMBINED_SRC);
+const COMBINED_ALL = new RegExp(COMBINED_SRC, "g");
+const KEY_NAME = new Map([["BB","Bb"],["EB","Eb"],["F","F"],["B.C.","B.C."],["T.C.","T.C."]]);
+function titleCase(s){ return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+function keyName(k){ return k ? " " + (KEY_NAME.get(k.replace(/\s+/g,"")) || k) : ""; }
+// The printed label, tidied: both halves in the order printed, one slash, and the ordinals and key
+// spelled the way the rest of the app spells them. Rebuilt from the captures rather than taken as a
+// raw span, because the raw span may have the piece title sitting inside it.
+function combinedName(m){
+  const half = (ord, inst) => (ord ? titleCase(ord) + " " : "") + titleCase(inst);
+  // The joiner is kept as printed: a set that prints "Baritone & Trombone" gets that name back.
+  const join = m[3] === "&" ? " & " : "/";
+  return `${half(m[1], m[2])}${join}${half(m[4], m[5])}${keyName(m[6])}`;
+}
+// The first of the two instruments, named the way PARTS names it. Only used for sort order.
+function combinedFirst(m){ return (m[1] ? titleCase(m[1]) + " " : "") + titleCase(m[2]) + keyName(m[6]); }
+function matchCombined(h){
+  const m = COMBINED.exec(h);
+  return m ? { name:combinedName(m), first:combinedFirst(m), index:m.index, length:m[0].length } : null;
+}
+// Band order for one part name. PARTS is the order; a combined part is not in PARTS, so it sits
+// immediately after the first of its two instruments — "1st Baritone/Trombone Bb" files next to
+// "1st Baritone Bb" rather than at the end of the band. Anything else sorts to the end.
+function partOrder(name){
+  const i = PARTS.findIndex(p => p[0] === name);
+  if(i >= 0) return i;
+  const c = matchCombined(norm(name));
+  if(c){
+    const exact = PARTS.findIndex(p => p[0] === c.first);
+    if(exact >= 0) return exact + 0.5;
+    // No entry for that half on its own (a set printing a bare "Baritone/Trombone" has no plain
+    // "Baritone" in PARTS): fall in beside the first entry that names the same instrument.
+    const head = norm(c.first).replace(/ (?:B ?B|E ?B|B\.C\.|T\.C\.|F)$/, "");
+    const near = PARTS.findIndex(p => norm(p[0]).startsWith(head));
+    if(near >= 0) return near + 0.5;
+  }
+  return PARTS.length;
+}
+// The dropdown offers the canonical parts plus any combined part this document actually prints: a
+// shared part is not in PARTS, so without this its own page could not select the label it carries.
+function partOptions(pages){
+  const extra = new Set();
+  for(const p of pages){
+    for(const name of [p.detected, p.override]){
+      if(name && name !== SKIP && !PARTS.some(x => x[0] === name)) extra.add(name);
+    }
+  }
+  return [...PARTS.map(p => p[0]), ...extra].sort((a,b) => partOrder(a) - partOrder(b));
+}
+
 // Return the part whose regex matches the longest span of h, so a qualified label beats the plain one
 // it contains: "2nd Baritone/Trombone B.C." must not settle for "2nd Baritone". Ties keep the earlier
 // entry, which preserves the band-order preference the list has always encoded.
@@ -270,7 +341,11 @@ function matchPart(h){
     const m = h.match(r);
     if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; }
   }
-  return best;
+  // A combined label outranks either of its halves at equal length as well as at greater length:
+  // both spans start on the same word, and "1st Baritone B.C." ends on the very same clef as
+  // "1st Baritone/Trombone B.C.", so a strictly-longer test would leave the shared part as a half.
+  const c = matchCombined(h);
+  return c && c.length >= bestLen ? c.name : best;
 }
 function readingOrder(items){
   return [...items].sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
@@ -319,6 +394,9 @@ function detectPart(items){
       const m = h.match(r);
       if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; ev=w; if(after<0) after=0; }
     }
+    // Same equal-length preference as matchPart: the shared part outranks either of its halves.
+    const c = matchCombined(h);
+    if(c && c.length >= bestLen){ best=c.name; bestLen=c.length; ev=w; if(after<0) after=0; }
     if(after>=0 && ++after > LOOKAHEAD) break;
   }
   // Weak evidence is a match that does not look like a part label: the small type of a score's
@@ -341,8 +419,27 @@ function headerItems(upright, vpHeight){ return upright.filter(it=>it.transform[
 // not care how big the labels are, which is the case the weak-evidence test cannot see.
 const SCORE_LABELS = 4;
 function labelCount(items){
-  const h = norm(textOf(stitch(items)));
+  // Normalised word by word, and joined the same way textOf does, so h is exactly what
+  // norm(textOf(stitch(items))) used to be — a word that normalises to nothing would add a stray
+  // space, so those are dropped. Keeping the word boundaries lets a match be traced back to the
+  // text item it started in, which is what the prose test below needs.
+  const words = stitch(items).map(w => ({str:w.str, n:norm(w.str)})).filter(w => w.n);
+  const h = words.map(w => w.n).join(" ");
+  const at = []; let o = 0;
+  for(const w of words){ at.push(o); o += w.n.length + 1; }
+  const wordAt = i => { let k = 0; while(k+1 < at.length && at[k+1] <= i) k++; return words[k]; };
   const spans = [];
+  // Combined labels are collected first so that where a span starts on the same word as one of its
+  // halves, the sort below — which is stable — leaves the combined span in front and the half is
+  // dropped as an overlap. "1st Baritone/2nd Trombone" is one instrument on the page, not two.
+  for(const m of h.matchAll(COMBINED_ALL)){
+    // A shared part is a label, not a sentence. score.pdf's notes page discusses "Trombone/Baritone
+    // in Bar 36" inside one long prose item; counting that as an instrument could tip a parts page
+    // over the score threshold. Same 40-character prose test the weak-evidence check uses.
+    const w = wordAt(m.index);
+    if(w && w.str.length > 40) continue;
+    spans.push([m.index, m.index + m[0].length, combinedName(m)]);
+  }
   for(const [name,res] of PARTS) for(const r of res){
     const m = h.match(r);
     if(m) spans.push([m.index, m.index + m[0].length, name]);
@@ -623,6 +720,7 @@ async function load(file){
 
 function render(){
   const {groups,status} = currentPlan();
+  const options = partOptions(state.pages);
   const tb = $("rows"); tb.innerHTML="";
   for(const p of state.pages){
     const s = status[p.n];
@@ -631,7 +729,7 @@ function render(){
     // Only a page that resolves to nothing is flagged red; an inherited page is a normal outcome.
     sel.className = s.part?"":"warn";
     sel.add(new Option(INHERIT_LABEL,INHERIT));
-    PARTS.forEach(([name])=>sel.add(new Option(name,name)));
+    options.forEach(name=>sel.add(new Option(name,name)));
     sel.add(new Option(SKIP_LABEL,SKIP));
     // Show the effective part, so an inherited page names the part it continues.
     sel.value = p.override===SKIP ? SKIP : (s.part||INHERIT);
@@ -668,8 +766,7 @@ async function exportParts(){
   try{
     const src = await PDFLib.PDFDocument.load(state.bytes);
     const zip = new JSZip(); const list = $("files"); list.innerHTML="";
-    const order = PARTS.map(p=>p[0]);
-    const names = [...groups.keys()].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+    const names = [...groups.keys()].sort((a,b)=>partOrder(a)-partOrder(b));
     for(const part of names){
       const pageNums = groups.get(part);
       const doc = await PDFLib.PDFDocument.create();
