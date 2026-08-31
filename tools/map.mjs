@@ -24,6 +24,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
   "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
   "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "stitch", "titleSize", "isFirstPage", "hasPieceNumber", "labelCount",
+  "seriesName", "defaultPrefix", "SEP",
 ];
 
 function loadCore(){
@@ -61,6 +62,13 @@ async function mapFile(file, dedupe){
   const nums = [...numbers].sort((a,b)=>a-b);
   console.log(`piece numbers: ${nums.join(", ") || "not found"}`);
   if(titles.size) console.log(`titles: ${[...titles].join(" | ")}`);
+  // Print the series extraction so the parse is visible, not just its result.
+  const series = core.seriesName(pages, status);
+  console.log(series
+    ? `series: "${series.series}" #${series.number}${series.year ? ` (${series.year})` : " (no year)"} -> ${series.abbr}  ·  title: "${series.title}"  ·  from p.${series.page}`
+    : `series: none found on the cover`);
+  console.log(`default prefix: ${core.safeName(core.defaultPrefix(pages, status, numbers, basename(file)))}`);
+  console.log(`example file:   ${core.safeName(core.defaultPrefix(pages, status, numbers, basename(file)))}${core.SEP}1st Cornet Bb.pdf`);
   console.log("");
   console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",20)}new lbl header`);
   console.log("-".repeat(110));

@@ -376,6 +376,25 @@ function isFirstPage(words){
   return hasPieceNumber(words) || titleSize(words) >= FIRST_PAGE_PT;
 }
 
+// A score-fronted set opens with a cover, and often a prose notes page, carrying nothing the header
+// detector recognises — on both local score-fronted fixtures the cover's title, composer and series
+// line all sit at 40-60% page height, well below the 20% header band, so the page reads as empty.
+// Those pages are the score's front matter, not junk. The default below is deliberately narrow: it
+// fires only on a run starting at page 1, only when the document turned out to have a Full Score at
+// all (a plain set of parts with a junk first page must not invent one), and only up to COVER_MAX
+// pages, because a longer unassigned run means something else is wrong and should stay visible.
+const COVER_MAX = 3;
+
+// The cover's own text is nowhere near the header band, so anything that reads it — series naming
+// below — needs the whole page. Item boundaries and font sizes both matter and p.key throws away
+// both, so keep a reduced copy. Only the pages that can ever be front matter keep one: a 79-page
+// set would otherwise carry every glyph of every score page around for nothing.
+function coverItems(upright){
+  return upright
+    .map(it => ({ str: it.str.trim(), size: Math.abs(it.transform[0]), y: it.transform[5] }))
+    .filter(i => i.str);
+}
+
 // Everything the app knows about a page before the user touches anything.
 function pageRecord(n, items, vpHeight, vpWidth){
   const upright = uprightItems(items);
@@ -393,6 +412,7 @@ function pageRecord(n, items, vpHeight, vpWidth){
     first: isFirstPage(headerWords),// opens a new part, so it may not inherit
     number: hasPieceNumber(headerWords),
     size: `${Math.round(vpWidth)}x${Math.round(vpHeight)}`,
+    cover: n <= COVER_MAX ? coverItems(upright) : null,
     header: textOf(headerWords),
     key: norm(textOf(stitch(upright))),
   };
@@ -406,15 +426,6 @@ function scanMeta(upright, numbers, titles){
     if(size>=14 && /^[A-Z][A-Z0-9 .'’,&!:-]{3,}$/.test(t)) titles.add(t);
   });
 }
-
-// A score-fronted set opens with a cover, and often a prose notes page, carrying nothing the header
-// detector recognises — on both local score-fronted fixtures the cover's title, composer and series
-// line all sit at 40-60% page height, well below the 20% header band, so the page reads as empty.
-// Those pages are the score's front matter, not junk. The default below is deliberately narrow: it
-// fires only on a run starting at page 1, only when the document turned out to have a Full Score at
-// all (a plain set of parts with a junk first page must not invent one), and only up to COVER_MAX
-// pages, because a longer unassigned run means something else is wrong and should stay visible.
-const COVER_MAX = 3;
 
 // Resolve each page to an effective part, in page order, then group.
 //
@@ -479,6 +490,76 @@ function plan(pages, dedupe){
   }
   return {groups,status};
 }
+
+// ---------------------------------------------------------------------------------------------
+// Default filename prefix from the cover's series line: "TS #1352 - A Suite of English Carols".
+
+const SERIES_ABBR = new Map([
+  ["triumph series","TS"], ["festival series","FS"], ["general series","GS"], ["unity series","US"],
+  ["american band journal","ABJ"], ["american festival series","AFS"], ["maple leaf brass","MLB"],
+  ["hallelujah choruses","HC"], ["judd street collection","JSC"],
+]);
+// "Triumph Series 1352 (2023)", the year optional. Anchored to a whole text item on purpose: the
+// series line is its own item on every cover seen so far, and matching across a joined run of items
+// would let a composer line and a number from elsewhere on the page read as a series. The name is
+// capitalised words only, which is what keeps prose like "SASB 126 TB 857" out; a one-word name with
+// no year is rejected too, because that shape is a page or hymn reference rather than a series.
+const SERIES_LINE = /^([A-Z][A-Za-z'&.-]*(?:\s+[A-Z][A-Za-z'&.-]*){0,4})\s+(\d{1,5})(?:\s*\((\d{4})\))?$/;
+const COMPOSER_HINT = /\b(arr\.|arranged|trad\.|traditional|words|music by|lyrics)\b/i;
+const LICENCE_HINT  = /\b(licen[cs]ed|copyright)\b/i;
+
+function parseSeries(items){
+  for(const it of items){
+    const m = SERIES_LINE.exec(it.str.replace(/\s+/g," ").trim());
+    if(!m) continue;
+    if(m[1].split(" ").length < 2 && !m[3]) continue;
+    return { series:m[1], number:m[2], year:m[3] || null, item:it };
+  }
+  return null;
+}
+// Known series get their published abbreviation; anything else takes the initials of its capitalised
+// words, so "Winter Wonderland Series" becomes WWS rather than failing.
+function abbreviate(name){
+  return SERIES_ABBR.get(name.toLowerCase())
+      || name.split(/\s+/).filter(w => /^[A-Z]/.test(w)).map(w => w[0]).join("").toUpperCase();
+}
+// The largest thing on the cover that is not the series line, a composer credit or the licence
+// stamp. Ties break upwards, since a title sits above whatever shares its size.
+function coverTitle(items, seriesItem){
+  const cand = items.filter(i => i !== seriesItem && /[A-Za-z]{2,}/.test(i.str)
+    && !COMPOSER_HINT.test(i.str) && !LICENCE_HINT.test(i.str));
+  if(!cand.length) return null;
+  return cand.reduce((a,b) => (b.size > a.size || (b.size === a.size && b.y > a.y)) ? b : a).str;
+}
+// Front matter is page 1, plus anything the cover rule filed under Full Score in the first COVER_MAX
+// pages — which is where a prose notes page carrying the series line would sit.
+function coverPages(pages, status){
+  return pages.filter(p => p.cover && (p.n === 1 ||
+    (p.n <= COVER_MAX && status[p.n] && status[p.n].part === "Full Score")));
+}
+// A plain hyphen-minus with spaces. Export uses the same separator between prefix and part, so one
+// filename cannot mix "TS #1352 - Title" with an en dash immediately after it.
+const SEP = " - ";
+function seriesName(pages, status){
+  for(const p of coverPages(pages, status)){
+    const hit = parseSeries(p.cover);
+    if(!hit) continue;
+    const title = coverTitle(p.cover, hit.item);
+    if(!title) continue;
+    const abbr = abbreviate(hit.series);
+    return { page:p.n, series:hit.series, abbr, number:hit.number, year:hit.year, title,
+             prefix:`${abbr} #${hit.number}${SEP}${title}` };
+  }
+  return null;
+}
+// The prefix the box is pre-filled with. The series line if the cover has one, otherwise exactly
+// what it was before: the piece numbers joined, else the source filename.
+function defaultPrefix(pages, status, numbers, fileName){
+  const s = seriesName(pages, status);
+  if(s) return s.prefix;
+  const nums = [...numbers].sort((a,b)=>a-b);
+  return nums.length ? nums.join("-") : fileName.replace(/\.pdf$/i,"");
+}
 </script>
 
 <script>
@@ -528,10 +609,11 @@ async function load(file){
   const nums = [...numbers].sort((a,b)=>a-b);
   const titleList = [...titles];
   state = { bytes, pages, nums, titleList, fileName:file.name };
+  const { status } = currentPlan();
 
   $("title").textContent = titleList.length ? titleList.join(" · ") : file.name;
   $("meta").innerHTML = `<b>${pages.length}</b> pages · piece ${nums.length>1?"numbers":"number"} <b>${nums.join(", ")||"not found"}</b>`;
-  $("prefix").value = nums.length ? nums.join("-") : file.name.replace(/\.pdf$/i,"");
+  $("prefix").value = defaultPrefix(pages, status, numbers, file.name);
   $("summary").classList.remove("hidden"); $("review").classList.remove("hidden");
   drop.classList.add("hidden");
   hideProgress();
@@ -565,7 +647,7 @@ function render(){
 }
 
 function updateExample(){
-  $("example").textContent = `e.g. ${safeName($("prefix").value)} – 1st Cornet Bb.pdf`;
+  $("example").textContent = `e.g. ${safeName($("prefix").value)}${SEP}1st Cornet Bb.pdf`;
 }
 
 function setOut(msg,cls){ const o=$("out"); o.textContent=msg; o.className="out "+(cls||""); }
@@ -593,8 +675,8 @@ async function exportParts(){
       const doc = await PDFLib.PDFDocument.create();
       const copied = await doc.copyPages(src, pageNums.map(n=>n-1));
       copied.forEach(pg=>doc.addPage(pg));
-      doc.setTitle(`${prefix} – ${part}`);
-      const fname = `${prefix} – ${part}.pdf`;
+      doc.setTitle(`${prefix}${SEP}${part}`);
+      const fname = `${prefix}${SEP}${part}.pdf`;
       zip.file(fname, await doc.save());
       const li=document.createElement("li"); li.innerHTML=`<b>${fname}</b> · ${pageNums.length} page${pageNums.length===1?"":"s"}`; list.appendChild(li);
     }

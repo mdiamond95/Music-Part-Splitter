@@ -83,3 +83,48 @@ size=36.0  "The First Noel"
 size=18.0  "Traditional arr. Jared Proellocks"
 size=14.0  "Noel Jones Series 2104 (2021)"
 ```
+
+## After CHANGES2.md — Phases 3 and 4
+
+Phase 2 was CSS and markup only and changed nothing here. Phase 3 gives leading unassigned pages to
+the Full Score; Phase 4 changes the default filename prefix. Neither changes header detection.
+
+| fixture | pages | parts | kept | inherited | dups | skipped | Full Score |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | — |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | — |
+| `score.pdf` | 36 | 21 | **36** | 11 | 0 | **0** | **14 pages [1–14]** |
+| `scorefront.pdf` | 79 | 17 | **49** | 19 | 30 | **0** | **20 pages [1–20]** |
+| `carols.pdf` | 79 | 17 | **49** | 19 | 30 | **0** | **20 pages [1–20]** |
+
+Every other part's page list is byte-for-byte what it was; the only rows that moved are the three
+`Full Score` groups gaining page 1.
+
+### Series extraction and default prefix
+
+| fixture | series parsed | default prefix |
+| --- | --- | --- |
+| `regression.pdf` | none found on the cover | `1389-1390` |
+| `multipage.pdf` | none found on the cover | `multipage` |
+| `score.pdf` | `"Noel Jones Series" #2104 (2021) -> NJS`, title `The First Noel`, from p.1 | `NJS #2104 - The First Noel` |
+| `scorefront.pdf` | `"Triumph Series" #1352 (2023) -> TS`, title `A Suite of English Carols`, from p.1 | `TS #1352 - A Suite of English Carols` |
+| `carols.pdf` | same as `scorefront.pdf` (identical bytes) | `TS #1352 - A Suite of English Carols` |
+
+`score.pdf` exercises the unknown-series fallback: "Noel Jones Series" is not in the abbreviation
+map, so it takes the initials of its capitalised words.
+
+The separator is a plain hyphen-minus with spaces (` - `) **in both places** — inside the prefix and
+between prefix and part name — so a filename cannot mix the two dashes:
+`TS #1352 - A Suite of English Carols - 1st Cornet Bb.pdf`. The en dash is gone from the file.
+
+### What the real PDFs say that the brief did not
+
+- `multipage.pdf` **does** carry a series line, in a format the brief's pattern does not describe:
+  `Arthur Gullidge Series (AGS2004)` — abbreviation and number fused inside the parentheses, no
+  standing number, no year. It also sits in the header of every part page rather than on a cover.
+  The brief requires `multipage.pdf`'s default to stay unchanged, so the pattern is deliberately not
+  widened to catch it. Widening it later means handling `(<ABBR><NUMBER>)` as a second shape.
+- `score.pdf`'s notes page carries `SASB 126 TB 857`, which is why the series name is restricted to
+  capitalised words: a looser pattern reads that as series "SASB 126 TB" number 857.
+- The "cover present but no series line" fallback has no fixture behind it. It is covered by
+  `npm run check` instead.
