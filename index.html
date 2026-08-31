@@ -255,12 +255,16 @@ function labelCount(items){
   const spans = [];
   for(const [name,res] of PARTS) for(const r of res){
     const m = h.match(r);
-    if(m) spans.push([m.index, m.index + m[0].length]);
+    if(m) spans.push([m.index, m.index + m[0].length, name]);
   }
   spans.sort((a,b)=>a[0]-b[0]);
-  let n = 0, end = -1;
-  for(const [from,to] of spans) if(from >= end){ n++; end = to; }
-  return n;
+  // Drop spans that overlap one already counted, then count distinct instruments among what is left:
+  // one label matched by three regexes is one instrument, and one instrument named in two places on a
+  // page (a part's own label plus a cue) is still one instrument.
+  const seen = new Set();
+  let end = -1;
+  for(const [from,to,name] of spans) if(from >= end){ seen.add(name); end = to; }
+  return seen.size;
 }
 
 // A part's first page carries a title block; its continuation pages carry only a small running head.
@@ -465,13 +469,24 @@ async function exportParts(){
     }
     const blob = await zip.generateAsync({type:"blob"});
     const zipName = `${prefix}.zip`;
+    const done = `Exported ${names.length} parts.`;
+    const download = () => {
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=zipName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setOut(done,"ok");
+    };
     const f = new File([blob], zipName, {type:"application/zip"});
     if(navigator.canShare && navigator.canShare({files:[f]})){
-      try{ await navigator.share({files:[f], title:zipName}); setOut(`Exported ${names.length} parts.`,"ok"); }
-      catch(e){ if(e.name!=="AbortError") throw e; setOut("Export cancelled."); }
+      try{ await navigator.share({files:[f], title:zipName}); setOut(done,"ok"); }
+      catch(e){
+        // Dismissing the share sheet is a choice, not a failure. Anything else — the sheet refusing
+        // the file, a permissions error, an iPadOS quirk — must still hand over the ZIP rather than
+        // report "Export failed" to someone whose parts were built successfully.
+        if(e.name === "AbortError"){ setOut("Export cancelled."); }
+        else { console.warn("Share failed, falling back to download:", e); download(); }
+      }
     }else{
-      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=zipName; document.body.appendChild(a); a.click(); a.remove();
-      setOut(`Exported ${names.length} parts.`,"ok");
+      download();
     }
   }catch(e){
     console.error(e); setOut(`Export failed: ${e.message}`,"err");
