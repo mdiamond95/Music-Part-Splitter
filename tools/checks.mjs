@@ -15,7 +15,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix"];
+const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix",
+  "detectPart", "matchPart", "matchCombined", "labelCount", "partOrder", "partOptions"];
 const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
 const m = html.match(/<script id="core">([\s\S]*?)<\/script>/);
 if(!m) throw new Error('index.html has no <script id="core"> block');
@@ -184,6 +185,112 @@ check("safeName keeps the # in the prefix", () => {
 check("the separator is a plain hyphen-minus with spaces, not an en dash", () => {
   eq(core.SEP, " - ", "SEP");
   eq(core.SEP.includes("\u2013"), false, "contains an en dash");
+});
+
+console.log("\nCHANGES3 — shared parts\n");
+
+// Header text items as pdf.js hands them over, top-left first: [string, font size]. The real sets
+// print the label at 8-10pt in the top-left corner, which is what these imitate.
+// A row is either "label" or ["label", size].
+const hdr = (...rows) => rows.map((row, i) => {
+  const [str, size = 10] = Array.isArray(row) ? row : [row];
+  return { str, width: str.length * size * 0.5, transform: [size, 0, 0, size, 40 + i * 0.001, 800 - i] };
+});
+const detect = (...rows) => core.detectPart(hdr(...rows)).part;
+
+check("every shape of the pattern is recognised", () => {
+  const shapes = [
+    [["Baritone/Trombone"],                  "Baritone/Trombone"],            // bare, no ordinals
+    [["1st Baritone/Trombone B", ["b", 10]], "1st Baritone/Trombone Bb"],     // one ordinal, key
+    [["1st Baritone/2nd Trombone Bb"],       "1st Baritone/2nd Trombone Bb"], // both ordinals
+    [["2nd Baritone/Trombone B.C."],         "2nd Baritone/Trombone B.C."],   // bass clef
+    [["Solo Horn/1st Horn Eb"],              "Solo Horn/1st Horn Eb"],        // Solo as an ordinal
+    [["Baritone & Trombone"],                "Baritone & Trombone"],          // ampersand joiner
+    [["Euphonium/Tuba T.C."],                "Euphonium/Tuba T.C."],          // treble clef
+    [["1st Horn/2nd Horn F"],                "1st Horn/2nd Horn F"],          // key with no flat
+  ];
+  for(const [items, name] of shapes) eq(detect(...items), name, items[0]);
+});
+
+check("the label may wrap around the piece title, as it does on the real sets", () => {
+  // multipage.pdf p.13 arrives in this order: the label's first line, then the centred title read
+  // between the two lines of the label, then the rest of the label.
+  eq(detect(["The Salvation Army Australia Territory", 15], ["Arthur Gullidge Series (AGS2004)", 12],
+            ["1st Baritone/", 8.6], ["Christmas Encore Medley", 15.5], ["Trombone B", 8.6], ["b", 8.6]),
+     "1st Baritone/Trombone Bb", "wrapped label");
+  eq(detect(["1st. Baritone/", 8.6], ["Christmas Encore Medley", 15.5], ["Trombone B.C.", 8.6]),
+     "1st Baritone/Trombone B.C.", "wrapped bass-clef label");
+});
+
+check("a combined label beats either of its halves", () => {
+  // The half is what today's code settled for: "1st Baritone B.C." matches the very same span,
+  // ending on the very same clef, so the shared part has to win the tie outright.
+  eq(core.matchPart(core.norm("1st Baritone/Trombone B.C.")), "1st Baritone/Trombone B.C.", "vs 1st Baritone B.C.");
+  eq(core.matchPart(core.norm("1st Baritone/2nd Trombone Bb")), "1st Baritone/2nd Trombone Bb", "vs 1st Baritone Bb");
+  eq(core.matchPart(core.norm("2nd Baritone/Trombone Bb")), "2nd Baritone/Trombone Bb", "vs 2nd Baritone Bb");
+  // And a plain label is still plain: neither half may be invented where no joiner was printed.
+  eq(core.matchPart(core.norm("1st Baritone Bb")), "1st Baritone Bb", "plain label");
+  eq(core.matchCombined(core.norm("1st Baritone Bb")), null, "plain label matched the pattern");
+});
+
+check("a slash between two words that are not both instruments is not a shared part", () => {
+  // encore.pdf.pdf p.18's credit line, and the String/Electric Bass part, which is a shared part but
+  // is carried by its own PARTS entry: neither half of it is an instrument name on its own.
+  for(const line of ["Words/Music: English 16th Century Folk Song", "String/Electric Bass"]){
+    eq(!!core.matchCombined(core.norm(line)), false, line.slice(0, 40));
+  }
+  eq(detect("String/Electric Bass"), "String Bass", "String/Electric Bass");
+});
+
+check("prose that mentions two instruments does not become a shared part", () => {
+  // score.pdf's Score Notes page discusses "Trombone/Baritone in Bar 36" mid-sentence. The pattern
+  // itself cannot tell a sentence from a label, so the two places that matter are guarded instead:
+  // the score signal ignores a match that starts inside a long text item, and detection marks it as
+  // weak evidence, which is what stops it breaking out of a score run into a part of its own.
+  const line = "Work on projecting sound through the lower register for Trombone/Baritone and";
+  // Zero, not one: neither half matches a PARTS entry on its own either, so the sentence names
+  // nothing the score signal can see — which is exactly the state it was in before this change.
+  eq(core.labelCount(hdr([line])), 0, "counted the sentence as an instrument");
+  eq(core.detectPart(hdr([line])).weak, true, "weak evidence");
+  // The same words as an actual label, in label-sized type, are a shared part.
+  eq(core.labelCount(hdr(["Trombone/Baritone"])), 1, "label count");
+  eq(core.detectPart(hdr(["Trombone/Baritone"])).weak, false, "weak evidence for a real label");
+});
+
+check("the score signal counts a combined label as one instrument", () => {
+  eq(core.labelCount(hdr(["1st Baritone/2nd Trombone Bb"])), 1, "1st Baritone/2nd Trombone Bb");
+  eq(core.labelCount(hdr(["2nd Baritone/Trombone B.C."])), 1, "2nd Baritone/Trombone B.C.");
+  eq(core.labelCount(hdr(["Flute/Oboe"])), 1, "Flute/Oboe");
+  // Two separate labels are still two, so the shared part cannot mask a real score page.
+  eq(core.labelCount(hdr(["1st Baritone Bb"], ["2nd Trombone Bb"])), 2, "two plain labels");
+  eq(core.labelCount(hdr(["1st Baritone/2nd Trombone Bb"], ["Soprano Eb"], ["Solo Cornet Bb"])), 3, "combined plus two");
+});
+
+check("the filename keeps the label readable: / becomes -", () => {
+  eq(core.safeName("1st Baritone/Trombone Bb"), "1st Baritone-Trombone Bb", "slash");
+  eq(core.safeName("Baritone & Trombone"), "Baritone & Trombone", "ampersand is left alone");
+  eq(`x${core.SEP}${core.safeName("2nd Baritone/Trombone B.C.")}.pdf`, "x - 2nd Baritone-Trombone B.C..pdf", "example file");
+});
+
+check("a shared part sorts immediately after the first of its two instruments", () => {
+  const parts = ["Soprano Eb", "1st Baritone Bb", "1st Baritone/Trombone Bb", "2nd Baritone Bb",
+                 "1st Baritone/Trombone B.C.", "1st Baritone B.C.", "Bass Trombone", "Euphonium Bb"];
+  eq([...parts].sort((a,b)=>core.partOrder(a)-core.partOrder(b)),
+     ["Soprano Eb", "1st Baritone Bb", "1st Baritone/Trombone Bb", "2nd Baritone Bb",
+      "1st Baritone B.C.", "1st Baritone/Trombone B.C.", "Bass Trombone", "Euphonium Bb"], "band order");
+  // A combined label with no plain entry for its first half falls in beside the same instrument.
+  const i = core.PARTS.findIndex(p => p[0] === "Baritone Bb");
+  eq(core.partOrder("Baritone/Trombone") > i && core.partOrder("Baritone/Trombone") < i + 1, true, "Baritone/Trombone");
+});
+
+check("the dropdown offers the shared parts this document prints", () => {
+  const pages = [{detected:"1st Baritone/Trombone Bb"}, {detected:"Soprano Eb"}, {detected:null, override:core.SKIP}];
+  const opts = core.partOptions(pages);
+  eq(opts.length, core.PARTS.length + 1, "option count");
+  eq(opts[opts.indexOf("1st Baritone Bb") + 1], "1st Baritone/Trombone Bb", "sits after its first instrument");
+  eq(opts.includes(core.SKIP), false, "Skip leaked into the part list");
+  // Nothing is added for a document that prints no shared part.
+  eq(core.partOptions([{detected:"Soprano Eb"}]).length, core.PARTS.length, "unchanged option count");
 });
 
 console.log(failed ? `\n${failed} check(s) failed\n` : "\nall checks passed\n");

@@ -203,3 +203,37 @@ p.14  "1st Baritone/"  "Trombone B"  "b"                (continuation page, no t
 
 So the pattern has to tolerate a bounded run of unrelated text after the joiner, the same way the
 existing `B.C.` qualifiers already do. It is bounded and only ever allowed *after* the joiner.
+
+## Baseline after CHANGES3 — shared parts
+
+Run with `npm run map` and `npm run check` at the Phase 2 commit. The `detected` column and the part
+list are 8 characters wider than before so a shared part's name is not truncated; that is the only
+cosmetic difference, and the diffs below were taken with column widths ignored.
+
+| fixture | pages | parts | kept | inherited | dups | skipped | changed vs before |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | identical |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | 8 pages renamed |
+| `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | identical |
+| `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | identical |
+| `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | identical |
+| `encore.pdf.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | 8 pages renamed |
+
+Part counts are unchanged everywhere: a shared part replaces the half it used to be filed under
+rather than adding a group. The only rows that moved are the eight pages Phase 1 named:
+
+| fixture | pages | before | after |
+| --- | --- | --- | --- |
+| `multipage.pdf` | 13, 14 | `1st Baritone Bb` | `1st Baritone/Trombone Bb` |
+| `multipage.pdf` | 15, 16 | `2nd Baritone Bb` | `2nd Baritone/Trombone Bb` |
+| `multipage.pdf` | 39, 40 | `1st Baritone B.C.` | `1st Baritone/Trombone B.C.` |
+| `multipage.pdf` | 41, 42 | `2nd Baritone B.C.` | `2nd Baritone/Trombone B.C.` |
+| `encore.pdf.pdf` | 35, 36 | `1st Baritone Bb` | `1st Baritone/Trombone Bb` |
+| `encore.pdf.pdf` | 37, 38 | `2nd Baritone Bb` | `2nd Baritone/Trombone Bb` |
+| `encore.pdf.pdf` | 61, 62 | `1st Baritone B.C.` | `1st Baritone/Trombone B.C.` |
+| `encore.pdf.pdf` | 63, 64 | `2nd Baritone B.C.` | `2nd Baritone/Trombone B.C.` |
+
+`score.pdf` is identical including its per-page label counts. Its Score Notes page (p.2) discusses
+"Trombone/Baritone in Bar 36" in prose, which the pattern on its own does match; `labelCount` ignores
+a match that starts inside a text item longer than 40 characters — the same prose test the
+weak-evidence check uses — so the page still reports 5 labels, not 7.
