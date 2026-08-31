@@ -407,6 +407,15 @@ function scanMeta(upright, numbers, titles){
   });
 }
 
+// A score-fronted set opens with a cover, and often a prose notes page, carrying nothing the header
+// detector recognises — on both local score-fronted fixtures the cover's title, composer and series
+// line all sit at 40-60% page height, well below the 20% header band, so the page reads as empty.
+// Those pages are the score's front matter, not junk. The default below is deliberately narrow: it
+// fires only on a run starting at page 1, only when the document turned out to have a Full Score at
+// all (a plain set of parts with a junk first page must not invent one), and only up to COVER_MAX
+// pages, because a longer unassigned run means something else is wrong and should stay visible.
+const COVER_MAX = 3;
+
 // Resolve each page to an effective part, in page order, then group.
 //
 // A page with no label of its own continues the previous page's part, which is how two- and
@@ -420,6 +429,7 @@ function plan(pages, dedupe){
   let carried = null;   // effective part of the previous page
   let source = 0;       // page that last carried a part of its own, for the "cont. of p.N" label
   let runSize = null;   // page size the current part started on
+  const leading = []; let leadingOpen = true;   // pages 1..k that resolved to nothing at all
   for(const p of pages){
     // A full score runs for many pages and only the first is labelled. Inside that run the title block
     // cannot mark a first page — every score page repeats the title — so the run is bounded by page
@@ -439,6 +449,13 @@ function plan(pages, dedupe){
     if(part && !inherited){ source = p.n; runSize = p.size; }
     carried = part;
 
+    // The leading run ends at the first page that resolves to something, and at any page the user
+    // has spoken for — an explicit part or Skip outranks the default, so neither joins the run.
+    if(leadingOpen){
+      if(part || p.override !== undefined) leadingOpen = false;
+      else leading.push(p.n);
+    }
+
     if(!part){ status[p.n]={dropped:true,label:"skipped",part:null,inherited:false}; continue; }
     const base = {part, inherited, from: inherited ? source : 0};
     const k = part+"§"+p.key;
@@ -447,6 +464,18 @@ function plan(pages, dedupe){
     if(!groups.has(part)) groups.set(part,[]);
     groups.get(part).push(p.n);
     status[p.n]={...base,dropped:false,label: inherited ? `cont. of p.${source}` : "keep"};
+  }
+
+  // Front matter joins the score. Prepended in document order, and never deduped: a cover is by
+  // definition a page the pipeline recognises nothing on, so a dedupe key match would be a
+  // coincidence, and losing a cover is worse than carrying two.
+  const score = groups.get("Full Score");
+  if(score && leading.length && leading.length <= COVER_MAX){
+    for(let i=leading.length-1; i>=0; i--){
+      const n = leading[i];
+      score.unshift(n);
+      status[n] = {part:"Full Score", inherited:false, from:0, dropped:false, label:"cover → Full Score"};
+    }
   }
   return {groups,status};
 }

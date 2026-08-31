@@ -62,12 +62,12 @@ async function mapFile(file, dedupe){
   console.log(`piece numbers: ${nums.join(", ") || "not found"}`);
   if(titles.size) console.log(`titles: ${[...titles].join(" | ")}`);
   console.log("");
-  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",16)}new lbl header`);
+  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",20)}new lbl header`);
   console.log("-".repeat(110));
   for(const p of pages){
     const s = status[p.n];
     console.log(
-      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 16) + (p.first ? "1st " : "    ") + pad(p.score ? `S${p.labels}` : p.labels, 4) +
+      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 20) + (p.first ? "1st " : "    ") + pad(p.score ? `S${p.labels}` : p.labels, 4) +
       core.norm(p.header).slice(0, 60)
     );
   }
