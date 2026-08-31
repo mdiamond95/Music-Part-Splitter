@@ -1,0 +1,12 @@
+{
+  "name": "part-splitter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Verification harness for index.html. The web app itself needs no build step.",
+  "scripts": {
+    "map": "node tools/map.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "3.11.174"
+  }
+}
