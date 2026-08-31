@@ -153,7 +153,10 @@ const PARTS = [
   ["Timpani",           [/\bTIMP/]],
   ["Drums",             [/\bDRUM/]],
 ];
-const UNKNOWN = "— not detected —";
+const INHERIT = "";            // dropdown: no explicit choice, continue the previous page
+const SKIP = "__skip__";       // dropdown: leave this page out entirely
+const INHERIT_LABEL = "— inherit from previous page —";
+const SKIP_LABEL = "Skip this page";
 
 function norm(s){
   return s.replace(/[♭𝄫]/g,"b").replace(/♯/g,"#").toUpperCase().replace(/\s+/g," ").trim();
@@ -177,13 +180,32 @@ function uprightItems(items){ return items.filter(it=>Math.abs(it.transform[1])<
 // transform[5] is y, measured bottom-up, so the header band is the top 20% of the page.
 function headerItems(upright, vpHeight){ return upright.filter(it=>it.transform[5] > vpHeight*0.80); }
 
+// A part's first page carries a title block; its continuation pages carry only a small running head.
+// Measured across the local fixtures: title blocks are set at 15.5-24pt and running heads at 8-10pt,
+// so 12pt sits in a wide empty gap. Music glyphs are excluded by requiring a letter and two characters
+// (notation fonts emit single non-letter glyphs at large sizes).
+const FIRST_PAGE_PT = 12;
+function titleSize(header){
+  const lettered = header.filter(it=>/[A-Za-z]/.test(it.str) && it.str.trim().length>=2);
+  return lettered.length ? Math.max(...lettered.map(it=>Math.abs(it.transform[0]))) : 0;
+}
+// A page that opens a new part must never continue the previous one, even when its own label is
+// unrecognised — inheriting there would silently file it under the wrong neighbour. A piece number
+// or a title block in the header both mean "this page starts something".
+function isFirstPage(header){
+  if(header.some(it=>/^No\.?\s*\d{2,5}$/i.test(it.str.trim()) && it.transform[0]>=11)) return true;
+  return titleSize(header) >= FIRST_PAGE_PT;
+}
+
 // Everything the app knows about a page before the user touches anything.
 function pageRecord(n, items, vpHeight){
   const upright = uprightItems(items);
   const header = headerItems(upright, vpHeight);
   return {
     n,
-    part: detectPart(header),
+    detected: detectPart(header),   // what the header says; never changes after load
+    override: undefined,            // what the user chose in the dropdown, if anything
+    first: isFirstPage(header),     // opens a new part, so it may not inherit
     header: header.map(it=>it.str).join(" "),
     key: norm(upright.map(it=>it.str).join(" ")),
   };
@@ -198,19 +220,36 @@ function scanMeta(upright, numbers, titles){
   });
 }
 
-// Group pages by part; optionally drop pages whose text is identical to an earlier page in the same part.
+// Resolve each page to an effective part, in page order, then group.
+//
+// A page with no label of its own continues the previous page's part, which is how two- and
+// three-page parts stay together. Inheritance deliberately follows the previous page's part even
+// when that page was dropped as a duplicate: a two-copy two-page part arrives A1 A2 A1 A2, and the
+// second A2 has to inherit "A" before the dedupe key can recognise it as a copy of the first A2.
+// An explicit Skip breaks the chain — the page after it has nothing to continue.
 function plan(pages, dedupe){
   const groups = new Map(); const seen = new Map();
   const status = [];
+  let carried = null;   // effective part of the previous page
+  let source = 0;       // page that last carried a part of its own, for the "cont. of p.N" label
   for(const p of pages){
-    const part = p.part;
-    if(!part){ status[p.n]={dropped:true,label:"skipped"}; continue; }
+    let part = null, inherited = false;
+    if(p.override === SKIP)   part = null;
+    else if(p.override)       part = p.override;
+    else if(p.detected)       part = p.detected;
+    else if(carried && !p.first){ part = carried; inherited = true; }
+
+    if(part && !inherited) source = p.n;
+    carried = part;
+
+    if(!part){ status[p.n]={dropped:true,label:"skipped",part:null,inherited:false}; continue; }
+    const base = {part, inherited, from: inherited ? source : 0};
     const k = part+"§"+p.key;
-    if(dedupe && seen.has(k)){ status[p.n]={dropped:true,label:`copy of p.${seen.get(k)}`,dup:true}; continue; }
+    if(dedupe && seen.has(k)){ status[p.n]={...base,dropped:true,label:`copy of p.${seen.get(k)}`,dup:true}; continue; }
     seen.set(k,p.n);
     if(!groups.has(part)) groups.set(part,[]);
     groups.get(part).push(p.n);
-    status[p.n]={dropped:false,label:"keep"};
+    status[p.n]={...base,dropped:false,label: inherited ? `cont. of p.${source}` : "keep"};
   }
   return {groups,status};
 }
@@ -278,16 +317,19 @@ function render(){
     const s = status[p.n];
     const tr = document.createElement("tr"); if(s.dropped) tr.className="dropped";
     const sel = document.createElement("select");
-    sel.className = p.part?"":"warn";
-    const o0=new Option(UNKNOWN,""); sel.add(o0);
+    // Only a page that resolves to nothing is flagged red; an inherited page is a normal outcome.
+    sel.className = s.part?"":"warn";
+    sel.add(new Option(INHERIT_LABEL,INHERIT));
     PARTS.forEach(([name])=>sel.add(new Option(name,name)));
-    sel.value = p.part||"";
-    sel.addEventListener("change",()=>{ p.part = sel.value||null; render(); });
+    sel.add(new Option(SKIP_LABEL,SKIP));
+    // Show the effective part, so an inherited page names the part it continues.
+    sel.value = p.override===SKIP ? SKIP : (s.part||INHERIT);
+    sel.addEventListener("change",()=>{ p.override = sel.value===INHERIT ? undefined : sel.value; render(); });
     tr.innerHTML = `<td class="n">${p.n}</td><td class="th"><img src="${p.thumb}" alt=""></td><td></td><td class="status ${s.dup?"dup":""}">${s.label}</td>`;
     tr.children[2].appendChild(sel);
     tb.appendChild(tr);
   }
-  const missing = state.pages.filter(p=>!p.part).length;
+  const missing = state.pages.filter(p=>!status[p.n].part && p.override!==SKIP).length;
   $("export").textContent = `Export ${groups.size} part${groups.size===1?"":"s"}`;
   $("export").disabled = groups.size===0;
   if(missing) setOut(`${missing} page${missing===1?"":"s"} not detected — set the part or it will be skipped.`,"err"); else setOut("");

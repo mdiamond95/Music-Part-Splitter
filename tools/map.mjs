@@ -22,8 +22,8 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = [
-  "PARTS", "UNKNOWN", "norm", "matchPart", "detectPart", "safeName",
-  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan",
+  "PARTS", "INHERIT", "SKIP", "norm", "matchPart", "detectPart", "safeName",
+  "uprightItems", "headerItems", "pageRecord", "scanMeta", "plan", "titleSize", "isFirstPage",
 ];
 
 function loadCore(){
@@ -64,12 +64,12 @@ async function mapFile(file, dedupe){
   console.log(`piece numbers: ${nums.join(", ") || "not found"}`);
   if(titles.size) console.log(`titles: ${[...titles].join(" | ")}`);
   console.log("");
-  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",16)}header`);
+  console.log(`${pad("pg",4)}${pad("size",10)}${pad("detected",20)}${pad("status",16)}new header`);
   console.log("-".repeat(110));
   for(const p of pages){
     const s = status[p.n];
     console.log(
-      pad(p.n, 4) + pad(p.size, 10) + pad(p.part || "-", 20) + pad(s.label, 16) +
+      pad(p.n, 4) + pad(p.size, 10) + pad(p.detected || "-", 20) + pad(s.label, 16) + (p.first ? "1st " : "    ") +
       core.norm(p.header).slice(0, 60)
     );
   }
@@ -77,8 +77,9 @@ async function mapFile(file, dedupe){
   const kept = pages.filter(p => !status[p.n].dropped).length;
   const dups = pages.filter(p => status[p.n].dup).length;
   const skipped = pages.filter(p => status[p.n].dropped && !status[p.n].dup).length;
+  const inherited = pages.filter(p => status[p.n].inherited && !status[p.n].dropped).length;
   console.log("-".repeat(110));
-  console.log(`${groups.size} parts · ${kept} pages kept · ${dups} dropped as duplicates · ${skipped} skipped\n`);
+  console.log(`${groups.size} parts · ${kept} pages kept (${inherited} by inheritance) · ${dups} dropped as duplicates · ${skipped} skipped\n`);
 
   const order = core.PARTS.map(p => p[0]);
   const names = [...groups.keys()].sort((a,b)=>order.indexOf(a)-order.indexOf(b));
