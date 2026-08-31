@@ -319,7 +319,7 @@ async function exportParts(){
       const li=document.createElement("li"); li.innerHTML=`<b>${fname}</b> · ${pageNums.length} page${pageNums.length===1?"":"s"}`; list.appendChild(li);
     }
     const blob = await zip.generateAsync({type:"blob"});
-    const zipName = `${prefix} – parts.zip`;
+    const zipName = `${prefix}.zip`;
     const f = new File([blob], zipName, {type:"application/zip"});
     if(navigator.canShare && navigator.canShare({files:[f]})){
       try{ await navigator.share({files:[f], title:zipName}); setOut(`Exported ${names.length} parts.`,"ok"); }
