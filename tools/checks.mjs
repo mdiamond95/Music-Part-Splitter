@@ -16,7 +16,8 @@ import { dirname, resolve } from "node:path";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix",
-  "detectPart", "matchPart", "matchCombined", "labelCount", "partOrder", "partOptions"];
+  "detectPart", "matchPart", "matchCombined", "matchPartInKey", "labelCount", "partOrder", "partOptions",
+  "stitch", "isFirstPage", "hasPieceNumber"];
 const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
 const m = html.match(/<script id="core">([\s\S]*?)<\/script>/);
 if(!m) throw new Error('index.html has no <script id="core"> block');
@@ -304,6 +305,54 @@ check("the score signal counts a combined label as one instrument", () => {
   // Two separate labels are still two, so the shared part cannot mask a real score page.
   eq(core.labelCount(hdr(["1st Baritone Bb"], ["2nd Trombone Bb"])), 2, "two plain labels");
   eq(core.labelCount(hdr(["1st Baritone/2nd Trombone Bb"], ["Soprano Eb"], ["Solo Cornet Bb"])), 3, "combined plus two");
+});
+
+check("every shape of a Part-in-Key label is recognised", () => {
+  const shapes = [
+    [["PART I in C"],                        "Part I in C"],      // the six unity.pdf prints
+    [["PART II in F"],                       "Part II in F"],
+    [["PART III in F"],                      "Part III in F"],
+    [["PART VIII in E", ["b", 14.5]],        "Part VIII in Eb"],  // flat as its own text item
+    [["PART II in B", ["b", 14.5]],          "Part II in Bb"],
+    [["PART 3 in F"],                        "Part 3 in F"],      // Arabic numeral, kept as printed
+    [["PART 7 in C"],                        "Part 7 in C"],
+  ];
+  for(const [items, name] of shapes) eq(detect(...items), name, items[0]);
+  eq(core.safeName("Part III in Bb"), "Part III in Bb", "filename");
+});
+
+check("the same numeral in two keys is two parts", () => {
+  // unity.pdf prints both, on pp.35 and 36. They are different parts, not one printed twice.
+  eq(detect("PART III in F") === detect("PART III in C"), false, "III in F vs III in C");
+  eq(core.partOrder("Part III in F") === core.partOrder("Part III in C"), false, "sort keys");
+});
+
+check("Part-in-Key parts sort as a block after the band and before percussion", () => {
+  const parts = ["Percussion Score", "Part III in F", "Bass Bb", "Part I in C", "Percussion I",
+                 "Part III in C", "String/Electric Bass", "Part V in C", "Part IV in C", "Part II in F"];
+  eq([...parts].sort((a,b)=>core.partOrder(a)-core.partOrder(b)),
+     ["Bass Bb", "String/Electric Bass", "Part I in C", "Part II in F", "Part III in C",
+      "Part III in F", "Part IV in C", "Part V in C", "Percussion Score", "Percussion I"], "band order");
+  // Numeral first, then key: an Arabic numeral sorts with the Roman one of the same value.
+  eq(core.partOrder("Part 3 in F") === core.partOrder("Part III in F"), true, "3 sorts with III");
+});
+
+check("a Part-in-Key page is a first page and offers itself in the dropdown", () => {
+  // unity.pdf's six pages carry "No. 549" at 14pt, so they open a part rather than inheriting.
+  const words = core.stitch(hdr(["THANK YOU, LORD", 20], ["No. 549", 14], ["PART I in C", 14.5]));
+  eq(core.isFirstPage(words), true, "first page");
+  eq(core.hasPieceNumber(words), true, "piece number");
+  const opts = core.partOptions([{detected:"Part I in C"}, {detected:"1st Cornet Bb"}]);
+  eq(opts.length, core.PARTS.length + 1, "option count");
+  eq(opts[opts.indexOf("Percussion Score") - 1], "Part I in C", "sits just before percussion");
+});
+
+check("prose about a part, and an incomplete label, are not Part-in-Key parts", () => {
+  for(const line of ["Euphonium part for that duet section to achieve balance",
+                     "PART I", "PART in C", "PART IX in C", "the part in question"]){
+    eq(!!core.matchPartInKey(core.norm(line)), false, line);
+  }
+  eq(detect("Euphonium part for that duet section to achieve balance"), "Euphonium Bb", "still the Euphonium");
 });
 
 check("the filename keeps the label readable: / becomes -", () => {

@@ -304,7 +304,19 @@ const WORD = "([A-Z][A-Z]{2,})";
 const QUALIFIED_SRC = `\\b${WORD}([/&])(?:${WORD} )?${INST}${KEY}`;
 const QUALIFIED = new RegExp(QUALIFIED_SRC);
 const QUALIFIED_ALL = new RegExp(QUALIFIED_SRC, "g");
+// A Unity Series set ends with a family of parts named by number and key rather than by instrument:
+// "PART I in C", "PART III in F", "PART III in C". They are open parts, playable on anything pitched
+// that way, and each numeral-and-key pair is a part of its own — III in F and III in C are two
+// different parts, not one printed twice. Recognised by shape rather than by listing the six the
+// local set happens to print. Roman numerals are ordered longest-first so "III" cannot match as "I".
+const NUMERAL = "(VIII|VII|VI|IV|V|III|II|I|[1-9])";
+const IN_KEY  = "(B ?B|E ?B|C|F)";
+const PART_IN_SRC = `\\bPART\\s+${NUMERAL}\\s+IN\\s+${IN_KEY}(?![A-Z0-9])`;
+const PART_IN = new RegExp(PART_IN_SRC);
+const PART_IN_ALL = new RegExp(PART_IN_SRC, "g");
 const KEY_NAME = new Map([["BB","Bb"],["EB","Eb"],["F","F"],["B.C.","B.C."],["T.C.","T.C."]]);
+// Concert pitch first, then the flat keys in the order a band sheet lists them. Sort order only.
+const KEY_ORDER = ["C", "F", "Bb", "Eb"];
 function titleCase(s){ return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
 function keyName(k){ return k ? " " + (KEY_NAME.get(k.replace(/\s+/g,"")) || k) : ""; }
 // The printed label, tidied: both halves in the order printed, one slash, and the ordinals and key
@@ -326,6 +338,12 @@ function qualifiedName(m){
   return `${titleCase(m[1])}${join}${m[3] ? titleCase(m[3]) + " " : ""}${titleCase(m[4])}${keyName(m[5])}`;
 }
 function qualifiedFirst(m){ return titleCase(m[1]); }
+// "PART III in F" -> "Part III in F": the numeral is left exactly as printed, Roman or Arabic, and
+// the key is spelled the way every other part name spells it.
+function partInKeyName(m){ return `Part ${m[1]} in ${KEY_NAME.get(m[2].replace(/\s+/g,"")) || m[2]}`; }
+const ROMAN_VALUE = new Map([["I",1],["II",2],["III",3],["IV",4],["V",5],["VI",6],["VII",7],["VIII",8]]);
+// For sort order only, so "Part 3 in C" and "Part III in C" sort to the same place.
+function numeralValue(n){ return ROMAN_VALUE.get(n) || Number(n) || 0; }
 // Read as a match of either shape: a span the same length means the same label seen two ways, and
 // the two-instrument reading is the more specific of the two, so it is preferred.
 function readCombined(m, name, first){ return { name:name(m), first:first(m), index:m.index, length:m[0].length }; }
@@ -335,12 +353,32 @@ function matchCombined(h){
             : b ? readCombined(b, qualifiedName, qualifiedFirst) : null;
   return hit;
 }
+function matchPartInKey(h){
+  const m = PART_IN.exec(h);
+  return m ? { name:partInKeyName(m), first:null, index:m.index, length:m[0].length } : null;
+}
+// Every label that is recognised by shape rather than by a PARTS entry. The longer span wins, since
+// the two shapes describe different labels and cannot both be right about the same one.
+function matchShaped(h){
+  const c = matchCombined(h), p = matchPartInKey(h);
+  return c && (!p || p.length <= c.length) ? c : p;
+}
 // Band order for one part name. PARTS is the order; a combined part is not in PARTS, so it sits
 // immediately after the first of its two instruments — "1st Baritone/Trombone Bb" files next to
 // "1st Baritone Bb" rather than at the end of the band. Anything else sorts to the end.
 function partOrder(name){
   const i = PARTS.findIndex(p => p[0] === name);
   if(i >= 0) return i;
+  // The Part-in-Key family sorts as one block, after every instrument part and before percussion,
+  // ordered by numeral and then by key. The block sits in the gap below the first percussion entry,
+  // which leaves room for the shared parts that file at whole-number-plus-a-half.
+  const k = matchPartInKey(norm(name));
+  if(k){
+    const m = PART_IN.exec(norm(name));
+    const perc = PARTS.findIndex(p => p[0] === "Percussion Score");
+    const key = [...KEY_ORDER].indexOf(KEY_NAME.get(m[2].replace(/\s+/g,"")) || m[2]);
+    return (perc < 0 ? PARTS.length : perc) - 0.4 + numeralValue(m[1]) * 0.01 + Math.max(key, 0) * 0.001;
+  }
   const c = matchCombined(norm(name));
   if(c){
     const exact = PARTS.findIndex(p => p[0] === c.first);
@@ -374,10 +412,10 @@ function matchPart(h){
     const m = h.match(r);
     if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; }
   }
-  // A combined label outranks either of its halves at equal length as well as at greater length:
-  // both spans start on the same word, and "1st Baritone B.C." ends on the very same clef as
-  // "1st Baritone/Trombone B.C.", so a strictly-longer test would leave the shared part as a half.
-  const c = matchCombined(h);
+  // A shaped label outranks a PARTS entry at equal length as well as at greater length: a combined
+  // label's span starts on the same word as its half's, and "1st Baritone B.C." ends on the very
+  // same clef as "1st Baritone/Trombone B.C.", so a strictly-longer test would keep the half.
+  const c = matchShaped(h);
   return c && c.length >= bestLen ? c.name : best;
 }
 function readingOrder(items){
@@ -428,7 +466,7 @@ function detectPart(items){
       if(m && m[0].length > bestLen){ best=name; bestLen=m[0].length; ev=w; if(after<0) after=0; }
     }
     // Same equal-length preference as matchPart: the shared part outranks either of its halves.
-    const c = matchCombined(h);
+    const c = matchShaped(h);
     if(c && c.length >= bestLen){ best=c.name; bestLen=c.length; ev=w; if(after<0) after=0; }
     if(after>=0 && ++after > LOOKAHEAD) break;
   }
@@ -465,7 +503,7 @@ function labelCount(items){
   // Combined labels are collected first so that where a span starts on the same word as one of its
   // halves, the sort below — which is stable — leaves the combined span in front and the half is
   // dropped as an overlap. "1st Baritone/2nd Trombone" is one instrument on the page, not two.
-  for(const [all, name] of [[COMBINED_ALL, combinedName], [QUALIFIED_ALL, qualifiedName]])
+  for(const [all, name] of [[COMBINED_ALL, combinedName], [QUALIFIED_ALL, qualifiedName], [PART_IN_ALL, partInKeyName]])
   for(const m of h.matchAll(all)){
     // A shared part is a label, not a sentence. score.pdf's notes page discusses "Trombone/Baritone
     // in Bar 36" inside one long prose item; counting that as an instrument could tip a parts page
