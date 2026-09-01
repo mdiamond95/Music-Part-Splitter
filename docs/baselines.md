@@ -13,6 +13,7 @@ The fixtures are local to Mark's machine:
 | `score.pdf` | The First Noel (Noel Jones Series 2104), 36 pages, score in front |
 | `scorefront.pdf` | **byte-identical to `carols.pdf`** (md5 `f8dad550a4765bf4e84069527dff86d2`) |
 | `carols.pdf` | A Suite of English Carols (Triumph Series 1352), 79 pages, score in front |
+| `encore.pdf` | Christmas Encore Medley (Arthur Gullidge Series AGS2004), 70 pages, score in front, shared Baritone/Trombone parts |
 
 ## Baseline at commit `fbe64ce` — before CHANGES2.md
 
@@ -143,7 +144,7 @@ Corrected to 16/16 in both places. The enumerated part list was already right an
 
 Every fixture's extracted text was searched for a joiner (`/` or `&`) between two known instrument
 names, in the header band that detection reads and again across the whole page. A sixth file,
-`encore.pdf.pdf` (70 pages, Christmas Encore Medley, Arthur Gullidge Series AGS2004, score-fronted),
+`encore.pdf` (70 pages, Christmas Encore Medley, Arthur Gullidge Series AGS2004, score-fronted),
 is present in `fixtures/` and was inventoried too; it is the same publisher's set as `multipage.pdf`
 and carries the same shared parts.
 
@@ -151,12 +152,12 @@ and carries the same shared parts.
 
 | printed label | fixture · pages | group today | verdict |
 | --- | --- | --- | --- |
-| `1st Baritone/Trombone Bb` | `multipage.pdf` 13, 14 · `encore.pdf.pdf` 35, 36 | **1st Baritone Bb** | silently wrong |
-| `2nd Baritone/Trombone Bb` | `multipage.pdf` 15, 16 · `encore.pdf.pdf` 37, 38 | **2nd Baritone Bb** | silently wrong |
-| `1st. Baritone/Trombone B.C.` | `multipage.pdf` 39, 40 · `encore.pdf.pdf` 61, 62 | **1st Baritone B.C.** | silently wrong |
-| `2nd Baritone/Trombone B.C.` | `multipage.pdf` 41, 42 · `encore.pdf.pdf` 63, 64 | **2nd Baritone B.C.** | silently wrong |
-| `Flute/Oboe` | `multipage.pdf` 33, 34 · `score.pdf` 30 · `encore.pdf.pdf` 55, 56 | Flute/Oboe | already right |
-| `String/Electric Bass` | `multipage.pdf` 47, 48 · `score.pdf` 36 · `encore.pdf.pdf` 69, 70 | String Bass | right group, lossy name |
+| `1st Baritone/Trombone Bb` | `multipage.pdf` 13, 14 · `encore.pdf` 35, 36 | **1st Baritone Bb** | silently wrong |
+| `2nd Baritone/Trombone Bb` | `multipage.pdf` 15, 16 · `encore.pdf` 37, 38 | **2nd Baritone Bb** | silently wrong |
+| `1st. Baritone/Trombone B.C.` | `multipage.pdf` 39, 40 · `encore.pdf` 61, 62 | **1st Baritone B.C.** | silently wrong |
+| `2nd Baritone/Trombone B.C.` | `multipage.pdf` 41, 42 · `encore.pdf` 63, 64 | **2nd Baritone B.C.** | silently wrong |
+| `Flute/Oboe` | `multipage.pdf` 33, 34 · `score.pdf` 30 · `encore.pdf` 55, 56 | Flute/Oboe | already right |
+| `String/Electric Bass` | `multipage.pdf` 47, 48 · `score.pdf` 36 · `encore.pdf` 69, 70 | String Bass | right group, lossy name |
 
 `regression.pdf`, `carols.pdf` and `scorefront.pdf` contain no combined labels at all. Their only
 joiner text is music notation (`&` clefs, `/` repeat slashes) and the copyright line
@@ -165,7 +166,7 @@ joiner text is music notation (`&` clefs, `/` repeat slashes) and the copyright 
 ### The silent-wrong-assignment cases
 
 Eight pages across two fixtures — `multipage.pdf` 13, 14, 15, 16, 39, 40, 41, 42 (and the same eight
-labels on `encore.pdf.pdf` 35–38, 61–64). Each is a Baritone/Trombone shared part that today is
+labels on `encore.pdf` 35–38, 61–64). Each is a Baritone/Trombone shared part that today is
 filed under the Baritone half alone, so the Trombone player's part arrives in a file named for the
 Baritone and the label the page actually prints appears nowhere. This is what CHANGES3 exists to fix.
 
@@ -184,9 +185,9 @@ nothing to outrank it.
 - Prose, not labels: `score.pdf` p.2's Score Notes discuss "Trombone/Baritone in Bar 36" and
   "Baritone/Trombone, 2nd Horn". Both sit well below the header band, so detection never sees them,
   but the whole-page `labelCount` does.
-- `encore.pdf.pdf` p.18 prints "Words/Music: English 16th Century Folk Song" — a slash label whose
+- `encore.pdf` p.18 prints "Words/Music: English 16th Century Folk Song" — a slash label whose
   halves are not instruments.
-- `encore.pdf.pdf` p.3 is a score page whose instrument column includes `1st Baritone/` and
+- `encore.pdf` p.3 is a score page whose instrument column includes `1st Baritone/` and
   `2nd Baritone/`; it already resolves to Full Score on the page-level score signal (14 labels).
 
 ### The printed label is not one text item
@@ -217,7 +218,7 @@ cosmetic difference, and the diffs below were taken with column widths ignored.
 | `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | identical |
 | `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | identical |
 | `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | identical |
-| `encore.pdf.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | 8 pages renamed |
+| `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | 8 pages renamed |
 
 Part counts are unchanged everywhere: a shared part replaces the half it used to be filed under
 rather than adding a group. The only rows that moved are the eight pages Phase 1 named:
@@ -228,10 +229,10 @@ rather than adding a group. The only rows that moved are the eight pages Phase 1
 | `multipage.pdf` | 15, 16 | `2nd Baritone Bb` | `2nd Baritone/Trombone Bb` |
 | `multipage.pdf` | 39, 40 | `1st Baritone B.C.` | `1st Baritone/Trombone B.C.` |
 | `multipage.pdf` | 41, 42 | `2nd Baritone B.C.` | `2nd Baritone/Trombone B.C.` |
-| `encore.pdf.pdf` | 35, 36 | `1st Baritone Bb` | `1st Baritone/Trombone Bb` |
-| `encore.pdf.pdf` | 37, 38 | `2nd Baritone Bb` | `2nd Baritone/Trombone Bb` |
-| `encore.pdf.pdf` | 61, 62 | `1st Baritone B.C.` | `1st Baritone/Trombone B.C.` |
-| `encore.pdf.pdf` | 63, 64 | `2nd Baritone B.C.` | `2nd Baritone/Trombone B.C.` |
+| `encore.pdf` | 35, 36 | `1st Baritone Bb` | `1st Baritone/Trombone Bb` |
+| `encore.pdf` | 37, 38 | `2nd Baritone Bb` | `2nd Baritone/Trombone Bb` |
+| `encore.pdf` | 61, 62 | `1st Baritone B.C.` | `1st Baritone/Trombone B.C.` |
+| `encore.pdf` | 63, 64 | `2nd Baritone B.C.` | `2nd Baritone/Trombone B.C.` |
 
 `score.pdf` is identical including its per-page label counts. Its Score Notes page (p.2) discusses
 "Trombone/Baritone in Bar 36" in prose, which the pattern on its own does match; `labelCount` ignores

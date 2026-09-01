@@ -234,7 +234,7 @@ check("a combined label beats either of its halves", () => {
 });
 
 check("a slash between two words that are not both instruments is not a shared part", () => {
-  // encore.pdf.pdf p.18's credit line, and the String/Electric Bass part, which is a shared part but
+  // encore.pdf p.18's credit line, and the String/Electric Bass part, which is a shared part but
   // is carried by its own PARTS entry: neither half of it is an instrument name on its own.
   for(const line of ["Words/Music: English 16th Century Folk Song", "String/Electric Bass"]){
     eq(!!core.matchCombined(core.norm(line)), false, line.slice(0, 40));
