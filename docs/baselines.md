@@ -504,3 +504,112 @@ trailing period, and `B. Tbn.` carries a leading one.
 | `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | `AGS #2004 - A Christmas Encore Medley` |
 | `unity.pdf` | 38 | 18 | 26 | 6 | 12 | 0 | `US #549 - Thank You, Lord` |
 | `mlb.pdf` | 46 | 16 | 46 | 16 | 0 | 0 | `115` |
+
+## Baseline after CHANGES5 — the Maple Leaf Brass format
+
+`npm run map` and `npm run check` at the Phase 3 commit, against the pre-CHANGES5 code (`ed6c831`).
+
+| fixture | pages | parts | kept | inherited | dups | skipped | prefix | changed |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | `1389-1390` | byte-identical |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | `multipage` | byte-identical |
+| `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | `NJS #2104 - The First Noel` | byte-identical |
+| `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` | byte-identical |
+| `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` | byte-identical |
+| `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | `AGS #2004 - A Christmas Encore Medley` | byte-identical |
+| `unity.pdf` | 38 | 18 | 26 | 6 | 12 | 0 | `US #549 - Thank You, Lord` | byte-identical |
+| `mlb.pdf` | 46 | 16 | 46 | 16 → **0** | 0 | 0 | `115` → **`MLB #115 - Prelude - The Reason I Live`** | named, and pp.3–18 self-classify |
+
+Byte-identical is measured, not assumed: the whole `npm run map` output of all eight fixtures was
+diffed before and after, and the only lines that moved are mlb.pdf's pp.3–18 and its three naming
+lines. In particular `encore.pdf`, `carols.pdf` and `scorefront.pdf` fire the *original* signal on
+their score pages, not this one — their worst abbreviated column reads 2 — and `unity.pdf` reads 0
+abbreviations anywhere, its score signal resting where it always did on the nine spelled-out
+instruments in its column.
+
+### The threshold measurement — distinct abbreviated column labels per page
+
+Counted over all eight fixtures, 428 pages, the same way `SCORE_LABELS` was measured: distinct
+abbreviated stave labels sitting in the left quarter of the page at under 9pt.
+
+| fixture | 0 | 1 | 2 | 3 | 13 | highest page, and what it is |
+| --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | | | | | — |
+| `score.pdf` | 36 | | | | | — |
+| `unity.pdf` | 38 | | | | | — (its column label `Bar./Trom. Bb` ends on a key, not an abbreviation) |
+| `multipage.pdf` | 38 | 7 | 2 | 1 | | p.13, a Baritone/Trombone part: `Bar.` `Trom.` `B. Trom.` |
+| `carols.pdf` | 63 | 15 | 1 | | | p.6, a score page: `1st Trom.` `2nd Trom.` |
+| `scorefront.pdf` | 63 | 15 | 1 | | | p.6, a score page: `1st Trom.` `2nd Trom.` |
+| `encore.pdf` | 56 | 11 | 2 | 1 | | p.35, a Baritone/Trombone part: `Bar.` `Trom.` `B. Trom.` |
+| `mlb.pdf` | 30 | | | | 16 | pp.3–18, the score: thirteen abbreviated staves |
+
+The distribution is empty between 3 and 13. **`SCORE_ABBREVS = 6`**: three clear above every page in
+the corpus that is not a score page, seven clear below every abbreviated score page — double the
+false ceiling and under half the true floor.
+
+The column test earns its place. Dropping the left-quarter and small-type constraints and counting
+abbreviations anywhere on the page takes the worst non-score page from 3 to 4 (`encore.pdf` and
+`multipage.pdf` each put seven pages at 4), because the cues printed over the music — `Bar.` above a
+rest bar, `B. Trom.` at an entry — are the same words as the stave names.
+
+### mlb.pdf before → after
+
+| pages | before | after |
+| --- | --- | --- |
+| 3–18 | Full Score, `cont. of p.2` — carried by inheritance from the one page whose staves are named in full | Full Score, `keep` — each page classified on its own thirteen abbreviated staves |
+| default prefix | `115`, from the piece number | `MLB #115 - Prelude - The Reason I Live` |
+
+The group map is unchanged, and was already right — see the Phase 1 baseline above. What changed is
+what holds it up: the score run no longer depends on p.2 being the one page in eighteen that spells
+its staves out. Sixteen pages that were inherited are now first-class score pages, which is why the
+inheritance count drops to zero.
+
+```
+16 parts · 46 pages kept (0 by inheritance) · 0 dropped as duplicates · 0 skipped
+series: "MLB" #115 (no year) -> MLB  ·  title: "Prelude - The Reason I Live"  ·  from p.2
+default prefix: MLB #115 - Prelude - The Reason I Live
+example file:   MLB #115 - Prelude - The Reason I Live - 1st Cornet Bb.pdf
+```
+
+| part | pages | | part | pages |
+| --- | --- | --- | --- | --- |
+| Full Score | 1–18 | | 2nd Trombone Bb | 34, 35 |
+| Soprano Eb | 19 | | Bass Trombone | 36, 37 |
+| 1st Cornet Bb | 20, 21 | | Euphonium Bb | 38, 39 |
+| 2nd Cornet Bb | 22, 23 | | Bass Eb | 40, 41 |
+| 1st Horn Eb | 24, 25 | | Bass Bb | 42, 43 |
+| 2nd Horn Eb | 26, 27 | | Percussion I | 44 |
+| 1st Baritone Bb | 28, 29 | | Percussion II | 45, 46 |
+| 2nd Baritone Bb | 30, 31 | | | |
+| 1st Trombone Bb | 32, 33 | | | |
+
+Every two-page part is intact, held by its own running head rather than by inheritance — `2` ·
+`1st Cornet B` · `b` · `- The Reason I Live` detects `1st Cornet Bb` directly. Percussion I really is
+one page in this set; p.45 opens Percussion II with a full title block of its own. Nothing is red.
+
+### Where the naming actually comes from — the deviation from the brief
+
+Phase 3 as written looks for a known series *name* inside a text item of the first three pages. That
+string is not there: `Maple Leaf Brass` appears in this document only in the running head of pp.19–46,
+the pages Phase 3 forbids reading. Implemented literally, the path would fire on nothing and the
+prefix would stay `115`.
+
+So the cue vocabulary admits one more shape alongside the series name: a **known series abbreviation
+printed with its number as its own item** — `MLB 115`, on p.1 at 19.9pt. `SERIES_LINE` already
+recognises that shape and deliberately discards it ("a one-word name with no year is a page or hymn
+reference rather than a series"); the secondary path readmits it, and only it, when the one word is an
+abbreviation the map already publishes. `SASB 126` and `TB 857` — the hymn book references printed in
+exactly this shape — are not in the map and still name nothing.
+
+The number then comes from the separate `No. 115` item as the brief specifies, and the title from the
+page that item sits on: p.2, which prints `Prelude - The Reason I Live` whole at 26.1pt. Reading the
+title from the largest item across all three front pages instead would give `The Reason I Live` — the
+cover breaks the title over two lines, `Prelude` at 22.1pt above `The Reason I Live` at 28.1pt, and the
+larger half is the second one.
+
+The "ti" dropout is real but is not what this fixture's naming rests on. It splits `The Salvation Army`
+into two items, `The Salva` and `on Army`, on every part page, and leaves `Maple Leaf Brass` intact
+beside it. The tolerance is built anyway — series names are matched with every `ti` optional, against
+the page's items joined rather than one at a time, so a dropout falling *inside* a name
+(`Judd Street Collec` · `on`) is matched too — and `npm run check` is what holds it, since no fixture
+exercises it.
