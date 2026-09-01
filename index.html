@@ -283,7 +283,14 @@ const KEY  = "(?:\\s*(?:IN )?(B ?B|E ?B|B\\.C\\.|T\\.C\\.|F)(?![A-Z0-9]))?";
 // The gap is lazily optional — tried only after a second instrument fails to follow the joiner
 // directly — so that in "1st Baritone/2nd Trombone" the second ordinal is read as an ordinal and
 // not swallowed as filler.
-const COMBINED_SRC = `\\b${ORD}${INST}\\s*([/&])\\s*(?:\\S.{0,40}?\\s)??${ORD}${INST}${KEY}`;
+//
+// A third joiner: the Unity Series prints "BARITONE or TROMBONE Bb". It is spelled as a whole word
+// between spaces, so it can never match inside "Tenor" or "Horn" — and the instrument before it
+// ends on a lookahead that rules out a letter, so "BARITONEOR" is not a joiner either. Unlike the
+// punctuation joiners it takes no gap after it: a slash is what a set prints at a line break, and
+// every "or" label seen sits on one line, so allowing 40 characters of drift there would only let
+// prose like "extra percussion or vocal shouts" reach for a distant instrument.
+const COMBINED_SRC = `\\b${ORD}${INST}(?:\\s*([/&])\\s*(?:\\S.{0,40}?\\s)??|\\s+(OR)\\s+)${ORD}${INST}${KEY}`;
 const COMBINED = new RegExp(COMBINED_SRC);
 const COMBINED_ALL = new RegExp(COMBINED_SRC, "g");
 // A shared part is not always printed as two instrument names. "String/Electric Bass" is one part
@@ -305,12 +312,13 @@ function keyName(k){ return k ? " " + (KEY_NAME.get(k.replace(/\s+/g,"")) || k) 
 // raw span, because the raw span may have the piece title sitting inside it.
 function combinedName(m){
   const half = (ord, inst) => (ord ? titleCase(ord) + " " : "") + titleCase(inst);
-  // The joiner is kept as printed: a set that prints "Baritone & Trombone" gets that name back.
-  const join = m[3] === "&" ? " & " : "/";
-  return `${half(m[1], m[2])}${join}${half(m[4], m[5])}${keyName(m[6])}`;
+  // The joiner is kept as printed: a set that prints "Baritone & Trombone" or "Baritone or
+  // Trombone" gets that name back rather than a slash it never printed.
+  const join = m[4] ? " or " : m[3] === "&" ? " & " : "/";
+  return `${half(m[1], m[2])}${join}${half(m[5], m[6])}${keyName(m[7])}`;
 }
 // The first of the two instruments, named the way PARTS names it. Only used for sort order.
-function combinedFirst(m){ return (m[1] ? titleCase(m[1]) + " " : "") + titleCase(m[2]) + keyName(m[6]); }
+function combinedFirst(m){ return (m[1] ? titleCase(m[1]) + " " : "") + titleCase(m[2]) + keyName(m[7]); }
 // The same two, for the qualifier shape: "STRING/ELECTRIC BASS" -> "String/Electric Bass", whose
 // first half is the bare qualifier "String".
 function qualifiedName(m){

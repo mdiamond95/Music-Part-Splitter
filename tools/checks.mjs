@@ -274,6 +274,29 @@ check("prose that mentions two instruments does not become a shared part", () =>
   eq(core.detectPart(hdr(["Trombone/Baritone"])).weak, false, "weak evidence for a real label");
 });
 
+check("\"or\" joins a shared part, as a whole word only", () => {
+  // unity.pdf pp.20-23 print "BARITONE or TROMBONE Bb", with the flat as its own text item.
+  eq(detect(["BARITONE or TROMBONE B", 14.5], ["b", 14.5]), "Baritone or Trombone Bb", "unity label");
+  eq(detect("1st Horn or 2nd Horn Eb"), "1st Horn or 2nd Horn Eb", "ordinals on both halves");
+  eq(core.safeName("Baritone or Trombone Bb"), "Baritone or Trombone Bb", "filename needs no change");
+  const i = core.PARTS.findIndex(p => p[0] === "Baritone Bb");
+  eq(core.partOrder("Baritone or Trombone Bb") > i && core.partOrder("Baritone or Trombone Bb") < i + 1, true, "sorts after Baritone");
+  // Negatives: "or" inside a word is not a joiner, and neither is one with no instrument beside it.
+  for(const line of ["Tenor Horn Eb", "Baritoneor Trombone", "Horn or", "or Trombone Bb",
+                     "players can be encouraged to add extra percussion or vocal shouts"]){
+    eq(!!core.matchCombined(core.norm(line)), false, line);
+  }
+  eq(detect("Tenor Horn Eb"), null, "Tenor Horn Eb");
+});
+
+check("an abbreviated column label is not a shared part", () => {
+  // unity.pdf's score column prints "Bar./Trom. Bb". It matches no PARTS entry and no shared-part
+  // shape either, so it counts as nothing at all — the score signal on that page rests on the other
+  // nine instruments in the column. Recorded here because the brief expected it to count as one.
+  eq(core.matchCombined(core.norm("Bar./Trom. Bb")), null, "Bar./Trom. Bb");
+  eq(core.labelCount(hdr(["Bar./Trom. Bb"])), 0, "label count");
+});
+
 check("the score signal counts a combined label as one instrument", () => {
   eq(core.labelCount(hdr(["1st Baritone/2nd Trombone Bb"])), 1, "1st Baritone/2nd Trombone Bb");
   eq(core.labelCount(hdr(["2nd Baritone/Trombone B.C."])), 1, "2nd Baritone/Trombone B.C.");
