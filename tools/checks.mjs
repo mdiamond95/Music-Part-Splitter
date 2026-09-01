@@ -314,11 +314,22 @@ check("every shape of a Part-in-Key label is recognised", () => {
     [["PART III in F"],                      "Part III in F"],
     [["PART VIII in E", ["b", 14.5]],        "Part VIII in Eb"],  // flat as its own text item
     [["PART II in B", ["b", 14.5]],          "Part II in Bb"],
-    [["PART 3 in F"],                        "Part 3 in F"],      // Arabic numeral, kept as printed
-    [["PART 7 in C"],                        "Part 7 in C"],
+    [["PART 3 in F"],                        "Part III in F"],    // Arabic numeral, normalised
+    [["PART 7 in C"],                        "Part VII in C"],
   ];
   for(const [items, name] of shapes) eq(detect(...items), name, items[0]);
   eq(core.safeName("Part III in Bb"), "Part III in Bb", "filename");
+});
+
+check("an Arabic numeral and its Roman twin are one part", () => {
+  // A set printed either way has to yield one part under one filename, so the numeral is normalised
+  // rather than kept as printed.
+  eq(detect("PART 3 in F"), detect("PART III in F"), "3 in F vs III in F");
+  eq(detect("PART 3 in F"), "Part III in F", "canonical name");
+  eq(core.safeName(detect("PART 3 in F")), core.safeName(detect("PART III in F")), "filename");
+  // The key still separates them: same numeral, different key, different part.
+  eq(detect("PART 3 in F") === detect("PART 3 in C"), false, "3 in F vs 3 in C");
+  eq(detect("PART 3 in C"), "Part III in C", "3 in C");
 });
 
 check("the same numeral in two keys is two parts", () => {
@@ -333,7 +344,8 @@ check("Part-in-Key parts sort as a block after the band and before percussion", 
   eq([...parts].sort((a,b)=>core.partOrder(a)-core.partOrder(b)),
      ["Bass Bb", "String/Electric Bass", "Part I in C", "Part II in F", "Part III in C",
       "Part III in F", "Part IV in C", "Part V in C", "Percussion Score", "Percussion I"], "band order");
-  // Numeral first, then key: an Arabic numeral sorts with the Roman one of the same value.
+  // Numeral first, then key. A name that still carries an Arabic numeral — a dropdown choice saved
+  // before the numeral was normalised, say — sorts with the Roman one of the same value.
   eq(core.partOrder("Part 3 in F") === core.partOrder("Part III in F"), true, "3 sorts with III");
 });
 

@@ -396,3 +396,11 @@ falls to zero — every page in the set is now filed.
 | Baritone or Trombone Bb | 20 | | Part IV in C | 37 |
 | Euphonium Bb | 24 | | Part V in C | 38 |
 | Bass Eb | 26 | | Percussion Score, I, II | 32, 30, 31 |
+
+### Addendum — Arabic numerals normalise to Roman
+
+`PART 3 in F` and `PART III in F` are one part, named `Part III in F`, so a set printed either way
+exports one file under one name. The key still separates them: `Part III in F` and `Part III in C`
+remain two parts. All seven fixtures are byte-identical across this change — `unity.pdf` prints
+Roman numerals throughout, so nothing in the local sets exercises the normalisation; the checks in
+`npm run check` are what hold it.

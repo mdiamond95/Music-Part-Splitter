@@ -338,12 +338,16 @@ function qualifiedName(m){
   return `${titleCase(m[1])}${join}${m[3] ? titleCase(m[3]) + " " : ""}${titleCase(m[4])}${keyName(m[5])}`;
 }
 function qualifiedFirst(m){ return titleCase(m[1]); }
-// "PART III in F" -> "Part III in F": the numeral is left exactly as printed, Roman or Arabic, and
-// the key is spelled the way every other part name spells it.
-function partInKeyName(m){ return `Part ${m[1]} in ${KEY_NAME.get(m[2].replace(/\s+/g,"")) || m[2]}`; }
-const ROMAN_VALUE = new Map([["I",1],["II",2],["III",3],["IV",4],["V",5],["VI",6],["VII",7],["VIII",8]]);
-// For sort order only, so "Part 3 in C" and "Part III in C" sort to the same place.
+const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const ROMAN_VALUE = new Map(ROMAN.map((r, i) => [r, i]).slice(1));
 function numeralValue(n){ return ROMAN_VALUE.get(n) || Number(n) || 0; }
+// "PART III in F" and "PART 3 in F" are the same part, so the numeral is normalised to Roman rather
+// than kept as printed: a set printed either way yields one part under one filename. The key is
+// spelled the way every other part name spells it.
+function partInKeyName(m){
+  const n = numeralValue(m[1]);
+  return `Part ${ROMAN[n] || m[1]} in ${KEY_NAME.get(m[2].replace(/\s+/g,"")) || m[2]}`;
+}
 // Read as a match of either shape: a span the same length means the same label seen two ways, and
 // the two-instrument reading is the more specific of the two, so it is preferred.
 function readCombined(m, name, first){ return { name:name(m), first:first(m), index:m.index, length:m[0].length }; }

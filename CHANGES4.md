@@ -13,6 +13,12 @@ Extend the combined-label pattern's joiner set from {/, &} to {/, &, or} where "
 ## Phase 3 — Flexible "PART n in Key" family
 Add a generic pattern, not six entries: PART followed by a Roman numeral (I–VIII) or Arabic digit, then "in", then a key (C, F, Bb, Eb, B♭, E♭ — normalise flats). Canonical name "Part III in F" (title case, Roman numeral preserved, flat rendered as "b" in filenames). Each distinct (numeral, key) pair is its own part — "Part III in F" and "Part III in C" are two parts, not one. Sort them as a block after the standard brass band parts and before percussion, ordered by numeral then key. Add them to the dropdown only when the document prints them (same rule as shared parts). The first-page test must still fire on these pages — they carry "No. 549" in the header.
 
+### Addendum to Phase 3 (overrides "Roman numeral preserved" above)
+
+Arabic and Roman numerals name the same part, and the canonical name normalises to Roman:
+"PART 3 in F" → "Part III in F", so a set printed either way yields the same filename. "Part 3 in F"
+and "Part 3 in C" stay distinct.
+
 ## Phase 4 — Verification
 - Seven-fixture harness table. All six existing fixtures byte-identical (none of them prints "or" joiners or PART-in-Key labels — confirm rather than assume; score.pdf's notes page mentions instruments in prose and must not gain a match).
 - unity.pdf after: Full Score [1–10]; 1st Cornet, 2nd Cornet, 1st Horn, 2nd Horn, Baritone or Trombone Bb, Euphonium Bb, Bass Eb, Bass Bb, Percussion I, Percussion II, Percussion Score, Part I in C, Part II in F, Part III in F, Part III in C, Part IV in C, Part V in C — one page each after dedupe. Show the map and the dup count.
