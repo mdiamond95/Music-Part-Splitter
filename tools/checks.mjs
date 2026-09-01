@@ -467,6 +467,74 @@ check("leading pages ahead of a signal page are swept into the score", () => {
   eq([1,2].map(n=>label(r,n)), ["cover \u2192 Full Score","cover \u2192 Full Score"], "leading statuses");
 });
 
+console.log("\nCHANGES5 — naming a set that prints no series line\n");
+
+// mlb.pdf's front matter, as pdf.js hands it over. p.1 is the letterhead: the publisher, the cover
+// shorthand "MLB 115", and the title broken across two lines at two sizes. p.2 is the first score
+// page: the full title on one line, and the number beside it.
+const MLB_P1 = items(["The Salvation Army", 12, 627], ["Music and Gospel Arts", 12, 613],
+                     ["MLB 115", 19.9, 540], ["Prelude", 22.1, 497], ["The Reason I Live", 28.1, 466],
+                     ["Wayne & Cathy Perrin", 18, 431], ["arr. Michael Cooper", 18, 410]);
+const MLB_P2 = items(["Prelude - The Reason I Live", 26.1, 728], ["No. 115", 12.4, 703],
+                     ["WAYNE & CATHY PERRIN", 12.4, 703], ["Soprano Cornet E", 7.7, 652]);
+// The front matter as plan() leaves it: p.1 swept in by the cover rule, p.2 the score's first page.
+const mlbFront = (...extra) => [pg(1, {cover:MLB_P1}), pg(2, {cover:MLB_P2, score:true}),
+                                pg(3, {cover:[], score:true}), ...extra];
+
+check("a set with no series line is named from its cover shorthand and its number", () => {
+  const pages = mlbFront();
+  const s = core.seriesName(pages, core.plan(pages, true).status);
+  eq([s.abbr, s.number, s.year], ["MLB", "115", null], "series/number/year");
+  // The title comes from the page the number is on, which is where the set prints it whole. The
+  // cover's own largest item is "The Reason I Live" — the second half of a title split over two lines.
+  eq([s.title, s.page], ["Prelude - The Reason I Live", 2], "title and page");
+  eq(prefixOf(pages, ["115"]), "MLB #115 - Prelude - The Reason I Live", "prefix");
+});
+
+check("the series name is matched through a dropped \u201cti\u201d", () => {
+  // The running-head form, which is the shape the fonts in this set actually extract to. Read here
+  // from a front-matter page, since that is the only place this path is allowed to look.
+  const front = [pg(1, {cover:items(["The Salva", 15, 764], ["on Army Maple Leaf Brass", 15, 764],
+                                    ["No. 115", 20, 742], ["Prelude - The Reason I Live", 25, 742])})];
+  const s = core.seriesName(front, core.plan(front, true).status);
+  eq([s.abbr, s.number, s.title], ["MLB", "115", "Prelude - The Reason I Live"], "series/number/title");
+  // The same tolerance where the dropout falls inside the series name itself.
+  const collec = [pg(1, {cover:items(["Judd Street Collec", 15, 764], ["on", 15, 764],
+                                     ["No. 12", 20, 742], ["A Title", 25, 742])})];
+  eq(core.seriesName(collec, core.plan(collec, true).status).abbr, "JSC", "Judd Street Collection");
+});
+
+check("the secondary path never reads a part page's running head", () => {
+  // Every part page of mlb.pdf carries "The Salva on Army Maple Leaf Brass" and "No. 115" over its
+  // title. None of them is front matter, so none of them can name the document.
+  const head = items(["The Salva", 15, 764], ["on Army Maple Leaf Brass", 15, 764],
+                     ["No. 115", 20, 742], ["Prelude - The Reason I Live", 25, 742]);
+  const pages = [pg(1, {cover:[]}), pg(2, {detected:"Soprano Eb", first:true, cover:head}),
+                 pg(3, {detected:"1st Cornet Bb", first:true, cover:head})];
+  eq(core.seriesName(pages, core.plan(pages, true).status), null, "series");
+  eq(prefixOf(pages, ["115"]), "115", "prefix falls back to the piece number");
+  // And nothing past the third page is even kept as front matter to read.
+  eq(core.pageRecord(4, [], 792, 612).cover, null, "p.4 keeps no cover items");
+});
+
+check("the single-line pattern still comes first", () => {
+  // A cover carrying both: the real series line, and a shorthand item that the secondary path would
+  // otherwise answer with. The line wins, year and all.
+  const p = withCover([...cover("Snowfall","A Composer","Triumph Series 1352 (2023)"),
+                       ...items(["MLB 115", 20, 500], ["No. 115", 14, 480])]);
+  const s = core.seriesName(p, core.plan(p, true).status);
+  eq([s.abbr, s.number, s.year], ["TS", "1352", "2023"], "series/number/year");
+});
+
+check("half a cue names nothing", () => {
+  const only = (...rows) => { const p = [pg(1, {cover:items(...rows)})]; return core.seriesName(p, core.plan(p,true).status); };
+  eq(only(["MLB 115", 20, 540], ["A Title", 28, 466]), null, "a shorthand with no No. item");
+  eq(only(["No. 115", 20, 540], ["A Title", 28, 466]), null, "a number with no series");
+  // A hymn book reference is the same shape as the shorthand and must not be read as a series.
+  eq(only(["SASB 126", 20, 540], ["No. 115", 14, 520], ["A Title", 28, 466]), null, "SASB 126");
+  eq(only(["TB 857", 20, 540], ["No. 115", 14, 520], ["A Title", 28, 466]), null, "TB 857");
+});
+
 check("the dropdown offers the shared parts this document prints", () => {
   const pages = [{detected:"1st Baritone/Trombone Bb"}, {detected:"Soprano Eb"}, {detected:null, override:core.SKIP}];
   const opts = core.partOptions(pages);

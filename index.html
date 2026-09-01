@@ -762,8 +762,58 @@ function coverPages(pages, status){
 // A plain hyphen-minus with spaces. Export uses the same separator between prefix and part, so one
 // filename cannot mix "TS #1352 - Title" with an en dash immediately after it.
 const SEP = " - ";
+
+// A second way to read the front matter, for a set that prints no series line at all. A Maple Leaf
+// Brass set puts "MLB 115" on its letterhead and "No. 115" over the first score page, and the two
+// never meet on one line: SERIES_LINE reads "MLB 115" and then throws it away, because one
+// capitalised word with no year is a page or hymn reference far more often than it is a series.
+//
+// The words "Maple Leaf Brass" do appear in that set — in the running head of every one of its
+// twenty-eight part pages, which is exactly where this must not read from. A running head is not a
+// statement about the document, it is a statement about the page, and a set whose parts are drawn
+// from two journals would name whichever journal the last part came from. So the search stays on the
+// front matter, the same pages the primary path reads: page 1, plus anything the cover rule filed
+// under Full Score inside the first COVER_MAX pages.
+const SERIES_NUMBER = /^No\.?\s*(\d{1,5})$/i;
+// The cover shorthand: a known series abbreviation and its number, as its own item. Only the
+// abbreviations the map already knows are admitted, which is what keeps "SASB 126" and "TB 857" —
+// hymn book references, printed in exactly this shape — from naming a series.
+const ABBR_LINE = new RegExp(`^(${[...SERIES_ABBR.values()].join("|")})\\s+(\\d{1,5})$`);
+// Some embedded fonts drop the "ti" pair when the text is extracted: "The Salvation Army Maple Leaf
+// Brass" arrives as "The Salva" · "on Army Maple Leaf Brass". Nothing that reads a header may assume
+// clean words, so a series name is matched with every "ti" in it optional, and against the page's
+// items joined rather than one at a time — the dropout can fall inside the name as easily as beside
+// it ("Judd Street Collection" would arrive as "Judd Street Collec on"), and it splits the run into
+// two items when it does.
+function seriesPattern(name){
+  const src = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+").replace(/ti/g, "(?:ti|\\s*)");
+  return new RegExp(`(?<![a-z])${src}(?![a-z])`, "i");
+}
+function findSeriesCue(covers){
+  for(const p of covers){
+    const text = p.cover.map(i => i.str).join(" ").replace(/\s+/g, " ");
+    for(const [name, abbr] of SERIES_ABBR) if(seriesPattern(name).test(text)) return { name, abbr };
+    for(const it of p.cover){
+      const m = ABBR_LINE.exec(it.str.replace(/\s+/g, " ").trim());
+      if(m) return { name:m[1], abbr:m[1] };
+    }
+  }
+  return null;
+}
+// The number, and with it the page the title is read from: a set that prints its number over the
+// first page of the score prints the full title there too, spelled the way the parts spell it
+// ("Prelude - The Reason I Live"), where the cover breaks it across two lines at two sizes.
+function findSeriesNumber(covers){
+  for(const p of covers) for(const it of p.cover){
+    const m = SERIES_NUMBER.exec(it.str.replace(/\s+/g, " ").trim());
+    if(m) return { page:p, number:m[1], item:it };
+  }
+  return null;
+}
+
 function seriesName(pages, status){
-  for(const p of coverPages(pages, status)){
+  const covers = coverPages(pages, status);
+  for(const p of covers){
     const hit = parseSeries(p.cover);
     if(!hit) continue;
     const title = coverTitle(p.cover, hit.item);
@@ -771,6 +821,14 @@ function seriesName(pages, status){
     const abbr = abbreviate(hit.series);
     return { page:p.n, series:hit.series, abbr, number:hit.number, year:hit.year, title,
              prefix:`${abbr} #${hit.number}${SEP}${title}` };
+  }
+  // Only when the single-line pattern found nothing anywhere in the front matter. Both halves are
+  // required: a number with no series names nothing, and a series with no number is not a set.
+  const cue = findSeriesCue(covers), num = findSeriesNumber(covers);
+  if(cue && num){
+    const title = coverTitle(num.page.cover, num.item);
+    if(title) return { page:num.page.n, series:cue.name, abbr:cue.abbr, number:num.number, year:null,
+                       title, prefix:`${cue.abbr} #${num.number}${SEP}${title}` };
   }
   return null;
 }
