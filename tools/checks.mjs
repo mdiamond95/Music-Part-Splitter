@@ -17,7 +17,7 @@ import { dirname, resolve } from "node:path";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix",
   "detectPart", "matchPart", "matchCombined", "matchPartInKey", "labelCount", "partOrder", "partOptions",
-  "stitch", "isFirstPage", "hasPieceNumber"];
+  "stitch", "isFirstPage", "hasPieceNumber", "abbrevColumn", "SCORE_ABBREVS", "SCORE_LABELS", "pageRecord"];
 const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
 const m = html.match(/<script id="core">([\s\S]*?)<\/script>/);
 if(!m) throw new Error('index.html has no <script id="core"> block');
@@ -382,6 +382,89 @@ check("a shared part sorts immediately after the first of its two instruments", 
   // A combined label with no plain entry for its first half falls in beside the same instrument.
   const i = core.PARTS.findIndex(p => p[0] === "Baritone Bb");
   eq(core.partOrder("Baritone/Trombone") > i && core.partOrder("Baritone/Trombone") < i + 1, true, "Baritone/Trombone");
+});
+
+console.log("\nCHANGES5 — the abbreviated stave column\n");
+
+// A score page's left margin, as pdf.js hands it over: [string, x, size]. The real column sits at
+// x = 42-52 of a 612pt page at 7.7pt, which is what these imitate. Page width is 612 throughout.
+const PAGE_W = 612;
+const col = (...rows) => rows.map(([str, x = 45, size = 7.7], i) =>
+  ({ str, width: str.length * size * 0.5, transform: [size, 0, 0, size, x, 700 - i * 40] }));
+const MLB_COLUMN = ["Sop. Cor.", "1st Cor.", "2nd Cor.", "1st Hn", "2nd Hn", "1st Bari.", "2nd Bari.",
+                    "1st Tbn.", "2nd Tbn.", "B. Tbn.", "Euph.", "Perc. 1", "Perc. 2"];
+
+check("the abbreviated column is counted, with the measured margin on both sides", () => {
+  eq(core.SCORE_ABBREVS, 6, "threshold");
+  // mlb.pdf pp.3-18: thirteen abbreviated staves, seven clear above the threshold.
+  eq(core.abbrevColumn(col(...MLB_COLUMN.map(s => [s])), PAGE_W), 13, "the full column");
+  // The worst page in the fixtures that is not a score page — encore.pdf p.35, a Baritone/Trombone
+  // part carrying three cues over its music — counts 3, three clear below.
+  eq(core.abbrevColumn(col(["Bar."], ["Trom."], ["B. Trom."]), PAGE_W), 3, "a part page's cues");
+  // Distinct labels, not items: the same stave named twice down a long page is still one.
+  eq(core.abbrevColumn(col(["1st Cor."], ["1st Cor."], ["Euph."]), PAGE_W), 2, "repeats");
+  // Exactly at the threshold fires; one below does not.
+  const six = col(...MLB_COLUMN.slice(0, 6).map(s => [s]));
+  eq(core.abbrevColumn(six, PAGE_W) >= core.SCORE_ABBREVS, true, "six fires");
+  eq(core.abbrevColumn(col(...MLB_COLUMN.slice(0, 5).map(s => [s])), PAGE_W) >= core.SCORE_ABBREVS, false, "five does not");
+});
+
+check("only a column counts: cues over the music, and title-sized text, do not", () => {
+  // Same thirteen labels printed out over the stave rather than down the margin.
+  eq(core.abbrevColumn(col(...MLB_COLUMN.map(s => [s, 300])), PAGE_W), 0, "past the left quarter");
+  // Same thirteen set at title size. A part's own title block is never a stave column.
+  eq(core.abbrevColumn(col(...MLB_COLUMN.map(s => [s, 45, 14])), PAGE_W), 0, "title type");
+  // Single glyphs down the margin — clefs, braces, accidentals — are not words.
+  eq(core.abbrevColumn(col(["&"], ["?"], ["b"], ["\u00b0"], ["\u00a2"]), PAGE_W), 0, "notation glyphs");
+});
+
+check("an abbreviated stave label still names no part", () => {
+  // The signal classifies the page. It must not put a part behind any of these labels, and the
+  // weak-evidence test must keep flagging them as the small margin type they are.
+  for(const label of MLB_COLUMN){
+    const hit = core.detectPart(hdr([label, 7.7]));
+    eq(!!(hit.part && !hit.weak), false, `${label} detected as a strong part match`);
+  }
+  // unity.pdf's score column prints "Bar./Trom. Bb", which the CHANGES4 baseline recorded as matching
+  // nothing at all. It still matches nothing: the stave vocabulary is anchored at the end of the
+  // label and this one ends on a key, not on an abbreviation. That page's score signal rests where it
+  // always did, on the nine instruments in the column that are spelled out.
+  eq(core.abbrevColumn(col(["Bar./Trom. B"], ["b"]), PAGE_W), 0, "Bar./Trom. Bb column count");
+  eq(core.detectPart(hdr(["Bar./Trom. Bb", 7.7])).part, null, "Bar./Trom. Bb detects nothing");
+});
+
+check("a spelled-out stave inside the column does not claim the page", () => {
+  // mlb.pdf's column spells out two of its fifteen staves. Bass Eb is a real PARTS match on a real
+  // page, and without the page-level signal outranking detection the score page would file under it.
+  const page = pg(3, {detected:"Bass Eb", score:true});
+  const r = core.plan([pg(1), pg(2,{detected:"Full Score",first:true}), page, pg(4,{score:true})], true);
+  eq(partOf(r,3), "Full Score", "p.3 part");
+  eq(r.groups.has("Bass Eb"), false, "Bass Eb group");
+  // The dropdown still outranks the signal, as it does for the original one.
+  const chosen = core.plan([pg(1), pg(2,{detected:"Full Score",first:true}),
+                            {...page, override:"Bass Eb"}], true);
+  eq(partOf(chosen,3), "Bass Eb", "an explicit choice wins");
+});
+
+check("the signal opens a run that behaves like the original", () => {
+  // mlb.pdf's shape: letterhead, then a score whose pages carry nothing but the column, then a part.
+  // Same page size throughout — this set is portrait from cover to last part, so the size cue that
+  // bounds the run on the landscape-score fixtures says nothing here.
+  const score = n => pg(n, {score:true});
+  const r = core.plan([pg(1), score(2), score(3), pg(4), pg(5),
+                       pg(6, {detected:"Soprano Eb", first:true}), pg(7)], true);
+  eq(r.groups.get("Full Score"), [1,2,3,4,5], "Full Score pages");
+  eq(label(r,4), "cont. of p.3", "an unlabelled page inside the run inherits");
+  eq(r.groups.get("Soprano Eb"), [6,7], "the run ends at the first real part page");
+});
+
+check("leading pages ahead of a signal page are swept into the score", () => {
+  // The brief's expected mlb.pdf shape: a letterhead and a label-less first score page ahead of the
+  // first page the signal fires on. Two leading pages, under the cap of three.
+  const r = core.plan([pg(1), pg(2), pg(3,{score:true}), pg(4,{score:true}),
+                       pg(5,{detected:"Soprano Eb", first:true})], true);
+  eq(r.groups.get("Full Score"), [1,2,3,4], "Full Score pages");
+  eq([1,2].map(n=>label(r,n)), ["cover \u2192 Full Score","cover \u2192 Full Score"], "leading statuses");
 });
 
 check("the dropdown offers the shared parts this document prints", () => {

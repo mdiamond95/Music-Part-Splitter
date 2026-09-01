@@ -458,8 +458,12 @@ function textOf(words){ return words.map(w=>w.str).join(" "); }
 // accumulator would otherwise commit to "2nd Baritone" before "B.C." had even been read. Only a
 // strictly longer match displaces the incumbent, so a later cue cannot take over on equal footing.
 const LOOKAHEAD = 4;
-// Abbreviations run down the left margin of a score page: Sop., Solo Cor., 1st Hn.
-const ABBREV = /\b(SOP|COR|HN|BAR|TROM|TBN|EUPH|PERC)\.?$/;
+// Abbreviations run down the left margin of a score page: Sop., Solo Cor., 1st Hn. Both readings of
+// the column share one vocabulary — the weak-evidence test below, and the page-level signal further
+// down. BARI comes before BAR so that "1st Bari." is read as the abbreviation it is rather than
+// failing on the trailing "I"; the alternation is anchored, so the longer word has to be tried first.
+const ABBREV_WORD = "(SOP|COR|HN|BARI|BAR|TROM|TBN|EUPH|PERC)";
+const ABBREV = new RegExp(`\\b${ABBREV_WORD}\\.?$`);
 function detectPart(items){
   let acc="", best=null, bestLen=0, after=-1, ev=null;
   for(const w of stitch(items)){
@@ -530,6 +534,47 @@ function labelCount(items){
   return seen.size;
 }
 
+// A second, independent way to read a score page. `labelCount` only ever sees a stave whose name is
+// spelled out, and a Maple Leaf Brass score spells out two of fifteen: after its first page the column
+// reads "Sop. Cor. · 1st Cor. · 2nd Cor. · 1st Hn · 2nd Hn · 1st Bari. · 2nd Bari. · 1st Tbn. ·
+// 2nd Tbn. · B. Tbn. · Euph. · Bass Eb · Bass Bb · Perc. 1 · Perc. 2". Those pages read as two labels,
+// which is what a part page reads, and nothing about the page size separates them either — this set is
+// portrait throughout, score and parts alike. So the abbreviated column is counted on its own terms.
+//
+// It is a page-level signal and nothing more: an abbreviation still names no part, here or anywhere
+// else. What it decides is that the page is a score page, and `plan` files a score page under Full
+// Score ahead of whatever its header detected — which is what keeps the two spelled-out staves in that
+// column, Bass Eb and Bass Bb, from claiming the page.
+//
+// "In a column" is two measured things: the label sits in the left quarter of the page, and it is set
+// in the small type a stave name is set in. Both matter — dropping them lets the cue abbreviations
+// printed over the music ("Bar.", "B. Trom." above a rest bar) into the count, which takes the worst
+// part page in the fixtures from 3 to 4.
+const COLUMN_X = 0.25;    // stave labels sit at x = 42-52 of a 612pt page; cue labels sit over the music
+const COLUMN_PT = 9;      // the same bound the weak-evidence test uses to tell a stave name from a title
+// A stave label may carry a number: "Perc. 1", "Perc. 2".
+const ABBREV_STAVE = new RegExp(`\\b${ABBREV_WORD}\\.?(?:\\s*(?:\\d+|I{1,3}))?$`);
+function abbrevColumn(upright, vpWidth){
+  const seen = new Set();
+  for(const it of upright){
+    const s = it.str.trim();
+    // Two letters, so the single glyphs a notation font scatters down the margin — clefs, braces,
+    // accidentals — cannot be read as words.
+    if((s.match(/[A-Za-z]/g) || []).length < 2) continue;
+    if(it.transform[4] > vpWidth * COLUMN_X) continue;
+    if(Math.abs(it.transform[0]) >= COLUMN_PT) continue;
+    const n = norm(s);
+    if(ABBREV_STAVE.test(n)) seen.add(n);
+  }
+  // Distinct labels, not staves: "1st Cor." and "2nd Cor." are two, and one name printed twice is one.
+  return seen.size;
+}
+// Measured over all eight fixtures, 428 pages, the same way SCORE_LABELS was: every page that is not a
+// score page counts at most 3 (encore.pdf p.35 and multipage.pdf p.13, each a Baritone/Trombone part
+// carrying "Bar.", "Trom." and "B. Trom." cues), and every abbreviated score page counts 13. Six is
+// double the first number and under half the second, with three clear below it and seven clear above.
+const SCORE_ABBREVS = 6;
+
 // A part's first page carries a title block; its continuation pages carry only a small running head.
 // Measured across the local fixtures: title blocks are set at 15.5-24pt and running heads at 8-10pt,
 // so 12pt sits in a wide empty gap. Music glyphs are excluded by requiring a letter and two characters
@@ -575,10 +620,14 @@ function pageRecord(n, items, vpHeight, vpWidth){
   const headerWords = stitch(header);
   const hit = detectPart(header);
   const labels = labelCount(upright);
+  const staves = abbrevColumn(upright, vpWidth);
   return {
     n,
     labels,                         // distinct part labels on the page; many means a score
-    score: labels >= SCORE_LABELS,
+    staves,                         // distinct abbreviated stave labels down the left margin
+    // Either reading of the column is enough on its own: a score names its band in full on its first
+    // page and by abbreviation on the rest, and a set may print only one of the two.
+    score: labels >= SCORE_LABELS || staves >= SCORE_ABBREVS,
     detected: hit.part,             // what the header says; never changes after load
     weak: hit.weak,                 // the match does not look like a part label
     override: undefined,            // what the user chose in the dropdown, if anything
