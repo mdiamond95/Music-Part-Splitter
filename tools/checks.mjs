@@ -233,13 +233,30 @@ check("a combined label beats either of its halves", () => {
   eq(core.matchCombined(core.norm("1st Baritone Bb")), null, "plain label matched the pattern");
 });
 
-check("a slash between two words that are not both instruments is not a shared part", () => {
-  // encore.pdf p.18's credit line, and the String/Electric Bass part, which is a shared part but
-  // is carried by its own PARTS entry: neither half of it is an instrument name on its own.
-  for(const line of ["Words/Music: English 16th Century Folk Song", "String/Electric Bass"]){
+check("a shared part may be a qualifier and an instrument, not two instrument names", () => {
+  // "String/Electric Bass" is one part for two players. Neither half is an instrument on its own:
+  // the first is a bare qualifier, the second qualifies the Bass that ends the label.
+  eq(detect("String/Electric Bass"), "String/Electric Bass", "String/Electric Bass");
+  eq(detect("Christmas Encore Medley String/Electric Bass arr. Brian Hogg"), "String/Electric Bass", "in a header");
+  eq(core.safeName("String/Electric Bass"), "String-Electric Bass", "filename");
+  eq(core.labelCount(hdr(["String/Electric Bass"])), 1, "one instrument");
+  // It sorts where String Bass sorts, since that is the entry naming its first half.
+  const i = core.PARTS.findIndex(p => p[0] === "String Bass");
+  eq(core.partOrder("String/Electric Bass") > i && core.partOrder("String/Electric Bass") < i + 1, true, "band order");
+  // A set that prints the plain label, or prints the joiner loose, still lands on the PARTS entry.
+  eq(detect("String Bass"), "String Bass", "String Bass");
+  eq(detect("String / Electric Bass"), "String Bass", "String / Electric Bass");
+});
+
+check("a slash between two words that name no instrument is not a shared part", () => {
+  // encore.pdf p.18's credit line, score.pdf's notes page, and a bar of repeat slashes.
+  for(const line of ["Words/Music: English 16th Century Folk Song",
+                     "equivalent to the piano/rhythm guitar part and basses",
+                     "a movement to 4/4 can breathe new rhythmic",
+                     "‰ ‰ ‰ / ‘ ‘ mf"]){
     eq(!!core.matchCombined(core.norm(line)), false, line.slice(0, 40));
+    eq(detect(line), null, `detected on "${line.slice(0, 30)}"`);
   }
-  eq(detect("String/Electric Bass"), "String Bass", "String/Electric Bass");
 });
 
 check("prose that mentions two instruments does not become a shared part", () => {

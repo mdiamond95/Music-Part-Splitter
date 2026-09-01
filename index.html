@@ -269,7 +269,9 @@ function norm(s){
 // generically rather than by listing the combinations a publisher might print: an optional ordinal,
 // an instrument, a joiner, an optional second ordinal, a second instrument, an optional key or clef.
 const ORD  = "(?:(1ST|2ND|3RD|4TH|SOLO|REPIANO)\\.?\\s*)?";
-const INST = "(FLUTE|OBOE|CLARINET|SOPRANO|CORNET|FLUGEL(?: HORN)?|HORN|BARITONE|TROMBONE|EUPHONIUM|TUBA|TIMPANI|DRUMS|PERCUSSION)";
+// Ends on a lookahead so the name has to be a whole word: "BASS" must not match inside "BASSES",
+// which is a word the prose on a notes page uses.
+const INST = "(FLUTE|OBOE|CLARINET|SOPRANO|CORNET|FLUGEL(?: HORN)?|HORN|BARITONE|TROMBONE|EUPHONIUM|TUBA|BASS|TIMPANI|DRUMS|PERCUSSION)(?![A-Z])";
 // Ends on a lookahead rather than \b, because "B.C." ends in a full stop and \b would never fire.
 const KEY  = "(?:\\s*(?:IN )?(B ?B|E ?B|B\\.C\\.|T\\.C\\.|F)(?![A-Z0-9]))?";
 // The two halves are not adjacent in reading order on any of the local sets: the label wraps to a
@@ -277,13 +279,24 @@ const KEY  = "(?:\\s*(?:IN )?(B ?B|E ?B|B\\.C\\.|T\\.C\\.|F)(?![A-Z0-9]))?";
 // "1st Baritone/" · "Christmas Encore Medley" · "Trombone B" · "b". A bounded run of other text is
 // therefore allowed after the joiner, the same tolerance the B.C. entries in PARTS already carry.
 // It is allowed only there: the joiner itself must sit against the first instrument, which is what
-// keeps prose like "String/Electric Bass" and "Words/Music: …" out.
+// keeps prose like "Words/Music: …" out.
 // The gap is lazily optional — tried only after a second instrument fails to follow the joiner
 // directly — so that in "1st Baritone/2nd Trombone" the second ordinal is read as an ordinal and
 // not swallowed as filler.
 const COMBINED_SRC = `\\b${ORD}${INST}\\s*([/&])\\s*(?:\\S.{0,40}?\\s)??${ORD}${INST}${KEY}`;
 const COMBINED = new RegExp(COMBINED_SRC);
 const COMBINED_ALL = new RegExp(COMBINED_SRC, "g");
+// A shared part is not always printed as two instrument names. "String/Electric Bass" is one part
+// for two players, and neither half names an instrument on its own: the first is a bare qualifier
+// and the second qualifies the instrument that ends the label. That shape is admitted on three
+// conditions — the joiner is printed tight, with no space on either side; the span ends on a known
+// instrument and its optional key; and each bare word is a word, three letters or more. Those are
+// what keep the repeat-slash glyphs on a percussion page, "3/4 time" and "Words/Music:" out, none
+// of which put a real word tight against the joiner and an instrument immediately after it.
+const WORD = "([A-Z][A-Z]{2,})";
+const QUALIFIED_SRC = `\\b${WORD}([/&])(?:${WORD} )?${INST}${KEY}`;
+const QUALIFIED = new RegExp(QUALIFIED_SRC);
+const QUALIFIED_ALL = new RegExp(QUALIFIED_SRC, "g");
 const KEY_NAME = new Map([["BB","Bb"],["EB","Eb"],["F","F"],["B.C.","B.C."],["T.C.","T.C."]]);
 function titleCase(s){ return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
 function keyName(k){ return k ? " " + (KEY_NAME.get(k.replace(/\s+/g,"")) || k) : ""; }
@@ -298,9 +311,21 @@ function combinedName(m){
 }
 // The first of the two instruments, named the way PARTS names it. Only used for sort order.
 function combinedFirst(m){ return (m[1] ? titleCase(m[1]) + " " : "") + titleCase(m[2]) + keyName(m[6]); }
+// The same two, for the qualifier shape: "STRING/ELECTRIC BASS" -> "String/Electric Bass", whose
+// first half is the bare qualifier "String".
+function qualifiedName(m){
+  const join = m[2] === "&" ? " & " : "/";
+  return `${titleCase(m[1])}${join}${m[3] ? titleCase(m[3]) + " " : ""}${titleCase(m[4])}${keyName(m[5])}`;
+}
+function qualifiedFirst(m){ return titleCase(m[1]); }
+// Read as a match of either shape: a span the same length means the same label seen two ways, and
+// the two-instrument reading is the more specific of the two, so it is preferred.
+function readCombined(m, name, first){ return { name:name(m), first:first(m), index:m.index, length:m[0].length }; }
 function matchCombined(h){
-  const m = COMBINED.exec(h);
-  return m ? { name:combinedName(m), first:combinedFirst(m), index:m.index, length:m[0].length } : null;
+  const a = COMBINED.exec(h), b = QUALIFIED.exec(h);
+  const hit = a && (!b || b[0].length <= a[0].length) ? readCombined(a, combinedName, combinedFirst)
+            : b ? readCombined(b, qualifiedName, qualifiedFirst) : null;
+  return hit;
 }
 // Band order for one part name. PARTS is the order; a combined part is not in PARTS, so it sits
 // immediately after the first of its two instruments — "1st Baritone/Trombone Bb" files next to
@@ -432,13 +457,14 @@ function labelCount(items){
   // Combined labels are collected first so that where a span starts on the same word as one of its
   // halves, the sort below — which is stable — leaves the combined span in front and the half is
   // dropped as an overlap. "1st Baritone/2nd Trombone" is one instrument on the page, not two.
-  for(const m of h.matchAll(COMBINED_ALL)){
+  for(const [all, name] of [[COMBINED_ALL, combinedName], [QUALIFIED_ALL, qualifiedName]])
+  for(const m of h.matchAll(all)){
     // A shared part is a label, not a sentence. score.pdf's notes page discusses "Trombone/Baritone
     // in Bar 36" inside one long prose item; counting that as an instrument could tip a parts page
     // over the score threshold. Same 40-character prose test the weak-evidence check uses.
     const w = wordAt(m.index);
     if(w && w.str.length > 40) continue;
-    spans.push([m.index, m.index + m[0].length, combinedName(m)]);
+    spans.push([m.index, m.index + m[0].length, name(m)]);
   }
   for(const [name,res] of PARTS) for(const r of res){
     const m = h.match(r);

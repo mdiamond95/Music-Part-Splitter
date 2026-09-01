@@ -178,8 +178,9 @@ nothing to outrank it.
 ### Things that do not fit the "instrument joiner instrument" pattern
 
 - `String/Electric Bass` — the first half is not an instrument name and the second is qualified,
-  not ordinal-prefixed. It is a shared part, but it is already carried by the dedicated
-  `String Bass` entry and is deliberately left there rather than forced through the new pattern.
+  not ordinal-prefixed. It is a shared part, carried until now by the dedicated `String Bass` entry,
+  which files it correctly but under a name the page never prints. Picked up by the qualifier shape
+  added in the follow-up below.
 - `Flute/Oboe` is both a real combined label and an existing `PARTS` entry. The generic pattern must
   reconstruct exactly the name that entry already uses, or `score.pdf` and `multipage.pdf` change.
 - Prose, not labels: `score.pdf` p.2's Score Notes discuss "Trombone/Baritone in Bar 36" and
@@ -238,3 +239,27 @@ rather than adding a group. The only rows that moved are the eight pages Phase 1
 "Trombone/Baritone in Bar 36" in prose, which the pattern on its own does match; `labelCount` ignores
 a match that starts inside a text item longer than 40 characters — the same prose test the
 weak-evidence check uses — so the page still reports 5 labels, not 7.
+
+## Follow-up — the qualifier shape ("String/Electric Bass")
+
+The pattern in Phase 2 wanted two instrument names. `String/Electric Bass` has neither: the first
+half is a bare qualifier and the second qualifies the instrument that ends the label. A second shape
+now admits it, on three conditions that keep everything else out — the joiner is printed tight, with
+no space on either side; the span ends on a known instrument and its optional key; and each bare word
+is three letters or more. Repeat-slash glyphs (`‰ ‰ ‰ / ‘ ‘`), `Words/Music:`, `3/4` and
+`piano/rhythm guitar` all fail at least one of those. `Bass` joined the instrument list for it, with
+a trailing lookahead so it cannot match inside "basses" in the notes-page prose.
+
+`String Bass` stays in `PARTS`: a set printing the plain label, or printing the joiner loose as
+`String / Electric Bass`, still lands there.
+
+| fixture | pages | before | after |
+| --- | --- | --- | --- |
+| `multipage.pdf` | 47, 48 | `String Bass` | `String/Electric Bass` |
+| `score.pdf` | 36 | `String Bass` | `String/Electric Bass` |
+| `encore.pdf` | 69, 70 | `String Bass` | `String/Electric Bass` |
+
+Those five rows are the whole diff. `regression.pdf`, `carols.pdf` and `scorefront.pdf` are
+unchanged, no per-page label count moved anywhere, and every part count is the same as before — the
+shared part replaces the group it was hiding in rather than adding one. File name:
+`String-Electric Bass.pdf`; it sorts in the `String Bass` slot, at the end of the basses.
