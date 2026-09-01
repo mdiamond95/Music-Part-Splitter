@@ -14,6 +14,7 @@ The fixtures are local to Mark's machine:
 | `scorefront.pdf` | **byte-identical to `carols.pdf`** (md5 `f8dad550a4765bf4e84069527dff86d2`) |
 | `carols.pdf` | A Suite of English Carols (Triumph Series 1352), 79 pages, score in front |
 | `encore.pdf` | Christmas Encore Medley (Arthur Gullidge Series AGS2004), 70 pages, score in front, shared Baritone/Trombone parts |
+| `unity.pdf` | Thank You, Lord (Unity Series 549), 38 pages, score in front, an "or" shared part and six "Part n in Key" parts |
 
 ## Baseline at commit `fbe64ce` — before CHANGES2.md
 
@@ -263,3 +264,84 @@ Those five rows are the whole diff. `regression.pdf`, `carols.pdf` and `scorefro
 unchanged, no per-page label count moved anywhere, and every part count is the same as before — the
 shared part replaces the group it was hiding in rather than adding one. File name:
 `String-Electric Bass.pdf`; it sorts in the `String Bass` slot, at the end of the basses.
+
+## CHANGES4 Phase 1 — unity.pdf baseline (no code change)
+
+`npm run map -- fixtures/unity.pdf` at commit `d0dfab5`, before any CHANGES4 code.
+
+```
+38 pages · 11 parts · 19 pages kept (6 by inheritance) · 9 dropped as duplicates · 10 skipped
+```
+
+| part | pages |
+| --- | --- |
+| Full Score | 1–9 |
+| 1st Cornet Bb | 10 |
+| 2nd Cornet Bb | 14 |
+| 1st Horn Eb | 16 |
+| 2nd Horn Eb | 18 |
+| Euphonium Bb | 24 |
+| Bass Eb | 26 |
+| Bass Bb | 28 |
+| Percussion I | 30 |
+| Percussion II | 31 |
+| Percussion Score | 32 |
+
+### Series extraction
+
+`series: "Unity Series" #549 (2025) -> US · title: "Thank You, Lord" · from p.1`, giving the default
+prefix `US #549 - Thank You, Lord`. As expected in the brief.
+
+### Score run boundary
+
+p.1 is the blank cover, joined to the score by the cover rule. p.2 is `SCORE NOTES`. p.3 is the first
+score page and fires the page-level signal, and pp.4–9 inherit it; the run ends at p.10, which turns
+portrait (595x842 against the score's landscape 842x595) and carries the `1st CORNET Bb` title block.
+
+So the Full Score is **pp.1–9, not pp.1–10** as the brief expects. p.10 is the first Cornet part, not
+the last page of the score: the score is seven pages of music (3–9) behind two of front matter.
+
+The signal fires on p.3 with **9 labels, not 10**. The tenth instrument in that column is printed
+`Bar./Trom. Bb`, and the abbreviated form matches no `PARTS` entry at all, so it contributes nothing
+— it does not count as one instrument via the overlap rule, it counts as none. Harmless here (9 is
+well past the threshold of 4), but it is not what the brief assumes, and it means the abbreviated
+column label is invisible to the score signal rather than merged by it. The nine that do count are
+1st Cornet, 2nd Cornet, 1st Horn, 2nd Horn, Euphonium, Bass Eb, Bass Bb, Percussion I, Percussion II.
+
+### The two classes of loss — 10 pages, all red
+
+| pages | printed label | detected today | status |
+| --- | --- | --- | --- |
+| 20, 21, 22, 23 | `BARITONE or TROMBONE Bb` | nothing | skipped |
+| 33 | `PART I in C` | nothing | skipped |
+| 34 | `PART II in F` | nothing | skipped |
+| 35 | `PART III in F` | nothing | skipped |
+| 36 | `PART III in C` | nothing | skipped |
+| 37 | `PART IV in C` | nothing | skipped |
+| 38 | `PART V in C` | nothing | skipped |
+
+Both classes are silent losses of a different kind from CHANGES3's: nothing is mis-assigned, the
+pages simply fall out of the export. Four of the ten are the shared Baritone/Trombone part, printed
+four times over (pp.20–23), so the part is missing entirely rather than short of copies. Nothing else
+in the file is red or misgrouped: the other 28 pages all land where they should.
+
+### The labels themselves
+
+Both new shapes arrive as a single text item, unlike CHANGES3's wrapped labels:
+
+```
+p.20  "THANK YOU, LORD" · "No. 549" · "ANDREW MACKERETH" · "BARITONE or TROMBONE B" · "b"
+p.33  "THANK YOU, LORD" · "No. 549" · "ANDREW MACKERETH" · "PART I in C"
+p.35  "THANK YOU, LORD" · "No. 549" · "ANDREW MACKERETH" · "PART III in F"
+```
+
+The label is set at 14.5pt and the flat sign is a separate item, as it is everywhere else in these
+sets. Every one of the ten pages passes the first-page test on `No. 549` at 14pt, so none of them can
+inherit from the page before — which is why they are skipped outright rather than absorbed.
+
+### The other six fixtures
+
+Scanned for both new shapes before touching any code: no `or` joiner between two instrument names and
+no `Part n in Key` label anywhere in `regression.pdf`, `multipage.pdf`, `score.pdf`, `carols.pdf` or
+`encore.pdf`. The only bare "or"s are prose on `encore.pdf` pp.2 and 18 ("(or any) weight on the
+note", "extra percussion or vocal shouts"), neither of which puts an instrument name on both sides.
