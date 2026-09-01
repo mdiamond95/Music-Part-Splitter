@@ -15,6 +15,7 @@ The fixtures are local to Mark's machine:
 | `carols.pdf` | A Suite of English Carols (Triumph Series 1352), 79 pages, score in front |
 | `encore.pdf` | Christmas Encore Medley (Arthur Gullidge Series AGS2004), 70 pages, score in front, shared Baritone/Trombone parts |
 | `unity.pdf` | Thank You, Lord (Unity Series 549), 38 pages, score in front, an "or" shared part and six "Part n in Key" parts |
+| `mlb.pdf` | Prelude - The Reason I Live (Maple Leaf Brass 115), 46 pages, score in front, portrait throughout, score staves labelled by abbreviation |
 
 ## Baseline at commit `fbe64ce` — before CHANGES2.md
 
@@ -404,3 +405,102 @@ exports one file under one name. The key still separates them: `Part III in F` a
 remain two parts. All seven fixtures are byte-identical across this change — `unity.pdf` prints
 Roman numerals throughout, so nothing in the local sets exercises the normalisation; the checks in
 `npm run check` are what hold it.
+
+## Baseline before CHANGES5.md — `mlb.pdf`
+
+`npm run map -- fixtures/mlb.pdf` at commit `ed6c831`, before any CHANGES5 code. 46 pages, every one
+612x792 (US letter, portrait) — the score is the same size and orientation as the parts, so the page-size
+cue that bounds the score run on the other score-fronted fixtures carries no information here.
+
+```
+16 parts · 46 pages kept (16 by inheritance) · 0 dropped as duplicates · 0 skipped
+piece numbers: 115   ·   titles: MLB 115   ·   series: none found on the cover
+default prefix: 115
+```
+
+| part | pages | | part | pages |
+| --- | --- | --- | --- | --- |
+| Full Score | 1–18 | | 2nd Trombone Bb | 34, 35 |
+| Soprano Eb | 19 | | Bass Trombone | 36, 37 |
+| 1st Cornet Bb | 20, 21 | | Euphonium Bb | 38, 39 |
+| 2nd Cornet Bb | 22, 23 | | Bass Eb | 40, 41 |
+| 1st Horn Eb | 24, 25 | | Bass Bb | 42, 43 |
+| 2nd Horn Eb | 26, 27 | | Percussion I | 44 |
+| 1st Baritone Bb | 28, 29 | | Percussion II | 45, 46 |
+| 2nd Baritone Bb | 30, 31 | | | |
+| 1st Trombone Bb | 32, 33 | | | |
+
+### The page map is already right — four of the brief's premises do not hold
+
+The brief expects Soprano/Bass contamination across the score and a score run that never opens. Neither
+happens. Measured, page by page:
+
+1. **p.2 is not label-less.** It is the score's first page and, like every first score page, it prints
+   the *full* stave names down the left margin at 7.7pt: `Soprano Cornet Eb`, `1st Cornet Bb`,
+   `2nd Cornet Bb`, `1st Horn Eb`, `2nd Horn Eb`, `1st Baritone Bb`, `2nd Baritone Bb`,
+   `1st Trombone Bb`, `2nd Trombone Bb`, `Bass Trombone`, `Euphonium Bb`, `Bass Eb`, `Bass Bb`,
+   `Percussion 1`, `Percussion 2`. `labelCount` reads **17** distinct labels there (the 15 staves plus
+   `Timpani` and `Drums`, named in the percussion staves' instrument lists), so the *existing* signal
+   fires on p.2 with a margin of 13 over its threshold of 4.
+2. **The run therefore opens, and holds.** pp.3–18 are the abbreviated pages; each reads `labelCount`
+   2 (`Bass Eb`, `Bass Bb`, the only two staves still spelled in full down the abbreviated column).
+   Two is under the threshold, but they never need it: none of them is a first page and none carries a
+   piece number, so the score run carries them by inheritance. p.19 (`Soprano Cornet Eb`, a real title
+   block) ends the run.
+3. **Only one leading page, not two.** p.2 resolves to Full Score on its own, so the leading run the
+   cover rule sweeps is `[1]`, not `[1, 2]`. The result is the same — Full Score [1–18].
+4. **p.43 extracts its label.** Its running head comes out as `2` · `Bass B` · `b` ·
+   `- The Reason I Live` and detects `Bass Bb` directly; it does not need to inherit from p.42.
+
+So the only thing actually lost on this fixture is the **name**: the default prefix is `115`, from the
+piece number, where it should be `MLB #115 - Prelude - The Reason I Live`.
+
+### The naming cues, and where they are not
+
+`seriesName` finds nothing because `SERIES_LINE` needs `<Two Or More Capitalised Words> <number>` on
+one text item. What the front matter actually prints:
+
+```
+p.1  "The Salvation Army" 12pt · "Music and Gospel Arts" 12pt · "MLB 115" 19.9pt
+     "Prelude" 22.1pt · "The Reason I Live" 28.1pt · "Wayne & Cathy Perrin" 18pt · programme notes
+p.2  "Prelude - The Reason I Live" 26.1pt · "No. 115" 12.4pt · "WAYNE & CATHY PERRIN" 12.4pt
+p.3  (no front matter — first abbreviated score page)
+```
+
+`MLB 115` *is* recognised by `SERIES_LINE` and then deliberately discarded: one capitalised word with
+no year is rejected as "a page or hymn reference rather than a series".
+
+**The string the brief names as the Phase 3 cue is not in the first three pages.** `The Salva` ·
+`on Army Maple Leaf Brass` is the *running head of every part page*, pp.19–46 — precisely the place
+Phase 3 says the path must not read. Pages 1–3 print no series name at all, only the abbreviation
+`MLB` and, on p.2, `No. 115`. Phase 3 as literally specified would fire on nothing here.
+
+### The "ti" dropout is real, and it splits items rather than mangling them
+
+`Salvation` comes out as two adjacent text items, `The Salva` and `on Army Maple Leaf Brass`, on every
+part page. Note the dropout is a property of the part/score fonts only: p.1's letterhead is set in a
+different face and reads `The Salvation Army` intact. It never falls inside `Maple Leaf Brass` itself.
+
+### The abbreviated column, as extracted (p.3, and identically pp.4–18)
+
+```
+Sop. Cor. · 1st Cor. · 2nd Cor. · 1st Hn · 2nd Hn · 1st Bari. · 2nd Bari. · 1st Tbn. · 2nd Tbn.
+B. Tbn. · Euph. · Bass Eb · Bass Bb · Perc. 1 · Perc. 2
+```
+
+All at 7.7pt, all at x = 42–52 of a 612pt page. Thirteen are abbreviated; `Bass Eb` and `Bass Bb` are
+the two spelled in full, and are the two `labelCount` sees. Note `1st Hn` and `2nd Hn` carry no
+trailing period, and `B. Tbn.` carries a leading one.
+
+### The other seven fixtures, unchanged, for the nine-row table
+
+| fixture | pages | parts | kept | inherited | dups | skipped | prefix |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | `1389-1390` |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | `multipage` |
+| `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | `NJS #2104 - The First Noel` |
+| `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` |
+| `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` |
+| `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | `AGS #2004 - A Christmas Encore Medley` |
+| `unity.pdf` | 38 | 18 | 26 | 6 | 12 | 0 | `US #549 - Thank You, Lord` |
+| `mlb.pdf` | 46 | 16 | 46 | 16 | 0 | 0 | `115` |
