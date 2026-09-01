@@ -345,3 +345,54 @@ Scanned for both new shapes before touching any code: no `or` joiner between two
 no `Part n in Key` label anywhere in `regression.pdf`, `multipage.pdf`, `score.pdf`, `carols.pdf` or
 `encore.pdf`. The only bare "or"s are prose on `encore.pdf` pp.2 and 18 ("(or any) weight on the
 note", "extra percussion or vocal shouts"), neither of which puts an instrument name on both sides.
+
+## Baseline after CHANGES4 — the Unity Series format
+
+`npm run map` and `npm run check` at the Phase 3 commit, against the pre-CHANGES4 code (`d0dfab5`).
+
+| fixture | pages | parts | kept | inherited | dups | skipped | changed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | byte-identical |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | byte-identical |
+| `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | byte-identical |
+| `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | byte-identical |
+| `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | byte-identical |
+| `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | byte-identical |
+| `unity.pdf` | 38 | 11 → **18** | 26 | 6 | 12 | **10 → 0** | 10 pages recovered |
+
+Byte-identical is measured, not assumed: none of the six older fixtures prints an "or" joiner between
+two instrument names or a Part-in-Key label, and `score.pdf`'s notes page gains no match — the "or"
+joiner takes no gap after it, so prose cannot reach across to a distant instrument the way the slash
+joiner deliberately can.
+
+### unity.pdf before → after
+
+| pages | printed label | before | after |
+| --- | --- | --- | --- |
+| 20 | `BARITONE or TROMBONE Bb` | skipped | `Baritone or Trombone Bb` |
+| 21, 22, 23 | `BARITONE or TROMBONE Bb` | skipped | copies of p.20 |
+| 33 | `PART I in C` | skipped | `Part I in C` |
+| 34 | `PART II in F` | skipped | `Part II in F` |
+| 35 | `PART III in F` | skipped | `Part III in F` |
+| 36 | `PART III in C` | skipped | `Part III in C` |
+| 37 | `PART IV in C` | skipped | `Part IV in C` |
+| 38 | `PART V in C` | skipped | `Part V in C` |
+
+Nothing else on the page moved: no other row, no label count, no group. The dup count rises from 9 to
+12 because pp.21–23 are now recognised as copies of p.20 rather than skipped, and the skipped count
+falls to zero — every page in the set is now filed.
+
+```
+18 parts · 26 pages kept (6 by inheritance) · 12 dropped as duplicates · 0 skipped
+```
+
+| part | pages | | part | pages |
+| --- | --- | --- | --- | --- |
+| Full Score | 1–9 | | Bass Bb | 28 |
+| 1st Cornet Bb | 10 | | Part I in C | 33 |
+| 2nd Cornet Bb | 14 | | Part II in F | 34 |
+| 1st Horn Eb | 16 | | Part III in C | 36 |
+| 2nd Horn Eb | 18 | | Part III in F | 35 |
+| Baritone or Trombone Bb | 20 | | Part IV in C | 37 |
+| Euphonium Bb | 24 | | Part V in C | 38 |
+| Bass Eb | 26 | | Percussion Score, I, II | 32, 30, 31 |
