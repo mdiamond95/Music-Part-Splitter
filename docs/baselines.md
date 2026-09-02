@@ -15,7 +15,8 @@ The fixtures are local to Mark's machine:
 | `carols.pdf` | A Suite of English Carols (Triumph Series 1352), 79 pages, score in front |
 | `encore.pdf` | Christmas Encore Medley (Arthur Gullidge Series AGS2004), 70 pages, score in front, shared Baritone/Trombone parts |
 | `unity.pdf` | Thank You, Lord (Unity Series 549), 38 pages, score in front, an "or" shared part and six "Part n in Key" parts |
-| `mlb.pdf` | Prelude - The Reason I Live (Maple Leaf Brass 115), 46 pages, score in front, portrait throughout, score staves labelled by abbreviation |
+| `mlb.pdf` | Prelude - The Reason I Live (Maple Leaf Brass 115), 46 pages, score in front, portrait throughout, score staves labelled by abbreviation. **Kept encrypted on purpose** — it is the local evidence that the export guard fires |
+| `mlb-dec.pdf` | the same set, `qpdf --decrypt`ed. Its map must stay identical to `mlb.pdf`'s; it is the evidence that those 46 pages export cleanly once the encryption is gone |
 
 ## Baseline at commit `fbe64ce` — before CHANGES2.md
 
@@ -712,6 +713,97 @@ Three things do make the app's answer legitimately differ from `npm run map`'s, 
    cdnjs and the harness runs the same version's legacy build, so they should agree — but this is the
    one place a device could diverge, and the 0.039pt margin above is what it would divide.
 
-One sharp edge worth knowing: an inherited page shows its *effective* part in the dropdown, not
-"inherit". Re-picking the value already displayed turns it into an explicit override — same result
-here, but it pins the page against later changes upstream of it.
+## Known behaviour — an inherited page shows its part, not "inherit"
+
+In the review table, a page that resolved by inheritance displays the **effective** part in its
+dropdown — `1st Cornet Bb` on p.21, not `— inherit from previous page —`. That is deliberate and worth
+keeping: the table's job is to show what each page will be exported as, and a row reading "inherit"
+tells a tester nothing about where the page is going.
+
+The edge is that the display is indistinguishable from an explicit choice. Selecting the value already
+shown is not a no-op: it writes `p.override`, which pins the page to that part regardless of what
+happens upstream of it. Change the part on p.20 afterwards and p.21 no longer follows it.
+
+Nothing in the fixtures trips over this and no code changed for it. It is recorded because the symptom
+— "I fixed the part above and the page under it didn't follow" — reads like a detection bug and is not
+one. `plan()` is the only thing that groups pages; see the section above.
+
+## After the threshold fix — `FIRST_PAGE_PT` 12 -> 13.5
+
+The 0.039pt margin recorded above was the on-device failure: `isFirstPage` is the one threshold whose
+input comes from a renderer rather than from the file, and mlb.pdf's running heads arrive at 11.961
+against a threshold of 12. On the device they measured at or above it, so every continuation page read
+as a first page and each two-page part came apart into two one-page parts.
+
+13.5 is the midpoint of the real gap — 11.961 below, 15.466 above. Margins after the change, from
+`npm run margins`, which is now part of `npm test`:
+
+| fixture | continuation titles | margin below | first-page titles | margin above |
+| --- | --- | --- | --- | --- |
+| `regression.pdf` | — | — | 20.001 | 6.501 |
+| `multipage.pdf` | 9.366..9.992 | 3.508 | 15.466..15.543 | **1.966** |
+| `score.pdf` | 5.754..11.000 | 2.500 | 15.544..24.000 | 2.044 |
+| `scorefront.pdf` | 6.477..11.074 | 2.426 | 20.001..24.000 | 6.501 |
+| `carols.pdf` | 6.477..11.074 | 2.426 | 20.001..24.000 | 6.501 |
+| `encore.pdf` | 6.503..9.992 | 3.508 | 15.466..24.000 | **1.966** |
+| `unity.pdf` | 8.204..9.718 | 3.782 | 19.953..24.000 | 6.453 |
+| `mlb.pdf` | 7.669..11.961 | **1.539** | 24.985..26.095 | 11.485 |
+| `mlb-dec.pdf` | 7.669..11.961 | **1.539** | 24.985..26.095 | 11.485 |
+
+Tightest margin anywhere is now 1.539pt, against 0.039 before — a 39-fold improvement, and 1.5pt is
+far past any difference in font measurement between two renderers.
+
+`tools/margins.mjs` asserts a **1.0pt dead band** around the threshold across every fixture and exits
+non-zero if any page is inside it. Verified as a real assertion, not a rubber stamp: put the threshold
+back to 12 and it fails four fixtures — `mlb.pdf` and `mlb-dec.pdf` at 13 pages each, `carols.pdf` and
+`scorefront.pdf` at 1 each (0.926pt, which was the *second* closest call in the corpus and nobody knew).
+
+No page in any fixture sits between 12 and 13.5, so **all eight existing fixtures are byte-identical**
+across this change — measured by diffing the whole `npm run map` output, not assumed.
+
+### The nine-row harness
+
+| fixture | pages | parts | kept | inherited | dups | skipped | prefix |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `regression.pdf` | 32 | 16 | 16 | 0 | 16 | 0 | `1389-1390` |
+| `multipage.pdf` | 48 | 23 | 48 | 0 | 0 | 0 | `multipage` |
+| `score.pdf` | 36 | 21 | 36 | 11 | 0 | 0 | `NJS #2104 - The First Noel` |
+| `scorefront.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` |
+| `carols.pdf` | 79 | 17 | 49 | 19 | 30 | 0 | `TS #1352 - A Suite of English Carols` |
+| `encore.pdf` | 70 | 24 | 70 | 19 | 0 | 0 | `AGS #2004 - A Christmas Encore Medley` |
+| `unity.pdf` | 38 | 18 | 26 | 6 | 12 | 0 | `US #549 - Thank You, Lord` |
+| `mlb.pdf` | 46 | 16 | 46 | 0 | 0 | 0 | `MLB #115 - Prelude - The Reason I Live` |
+| `mlb-dec.pdf` | 46 | 16 | 46 | 0 | 0 | 0 | `MLB #115 - Prelude - The Reason I Live` |
+
+`mlb-dec.pdf`'s map is identical to `mlb.pdf`'s line for line — same 16 parts, same pages, same
+prefix, same series extraction. Decryption changes nothing the detector can see, which is the point:
+it isolates the export failure to pdf-lib.
+
+### Export verification, nine rows
+
+`npm run export` with no arguments now covers every fixture, and asserts both directions of the guard —
+a fixture that starts refusing fails, and so does one that stops.
+
+| fixture | parts | exported | guard |
+| --- | --- | --- | --- |
+| `regression.pdf` | 16 | 16 | — |
+| `multipage.pdf` | 23 | 23 | — |
+| `score.pdf` | 21 | 21 | — |
+| `scorefront.pdf` | 17 | 17 | — |
+| `carols.pdf` | 17 | 17 | — |
+| `encore.pdf` | 24 | 24 | — |
+| `unity.pdf` | 18 | 18 | — |
+| `mlb.pdf` | 16 | **0** | **fires** (expected) |
+| `mlb-dec.pdf` | 16 | **16** | — |
+
+`mlb-dec.pdf` exports all sixteen, and every one re-opens with the page count the plan promised: the
+Full Score at 18, twelve brass parts at 2 pages each, Percussion II at 2, and Soprano Eb and
+Percussion I at 1. 9,017 KB against the encrypted original's 1,880 KB of source, because pdf-lib
+copies the whole font and image resource set into each part.
+
+The guard message now names the way out:
+
+```
+This PDF is locked by the tool that created it and can't be split.
+Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.
+```

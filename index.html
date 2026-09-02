@@ -215,7 +215,7 @@
   </section>
   <!-- Build stamp. tools/stamp.mjs rewrites the span's text, and nothing else on the line; the
        markers are what it anchors to, so leave them alone. -->
-  <footer class="build">build <span id="build"><!--BUILD-->6cdd614 · 2026-09-02<!--/BUILD--></span></footer>
+  <footer class="build">build <span id="build"><!--BUILD-->814b2b2 · 2026-09-02<!--/BUILD--></span></footer>
 </div>
 
 <script id="core">
@@ -582,10 +582,20 @@ function abbrevColumn(upright, vpWidth){
 const SCORE_ABBREVS = 6;
 
 // A part's first page carries a title block; its continuation pages carry only a small running head.
-// Measured across the local fixtures: title blocks are set at 15.5-24pt and running heads at 8-10pt,
-// so 12pt sits in a wide empty gap. Music glyphs are excluded by requiring a letter and two characters
-// (notation fonts emit single non-letter glyphs at large sizes).
-const FIRST_PAGE_PT = 12;
+// Measured across every fixture: title blocks arrive at 15.466-26.095pt and running heads at
+// 5.754-11.961pt. Music glyphs are excluded by requiring a letter and two characters (notation fonts
+// emit single non-letter glyphs at large sizes).
+//
+// The threshold sits at the midpoint of that gap, not at the round number just above the running
+// heads. It used to be 12, which mlb.pdf clears by 0.039pt: its running head is set at a nominal 12
+// and arrives at 11.961, because the tool that imposed the pages scaled them by 0.9967. A margin that
+// thin is not a threshold, it is a coin toss between renderers — and it landed tails on the device,
+// where every continuation page read as a first page and each two-page part came apart into two
+// one-page parts. At 13.5 the nearest page on either side is 1.539 below and 1.966 above.
+//
+// tools/margins.mjs is what keeps it that way: it asserts a 1.0pt dead band around this number across
+// every fixture, so a set that squeezes the gap fails the suite instead of flipping silently.
+const FIRST_PAGE_PT = 13.5;
 function titleSize(words){
   const lettered = words.filter(w=>/[A-Za-z]{3,}/.test(w.str));
   return lettered.length ? Math.max(...lettered.map(w=>w.size)) : 0;
@@ -875,7 +885,8 @@ async function canCopyPages(src, create){
     return false;
   }
 }
-const ENCRYPTED_MSG = "This PDF is password-protected and can't be split";
+const ENCRYPTED_MSG = "This PDF is locked by the tool that created it and can't be split. "
+  + "Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.";
 </script>
 
 <script>

@@ -575,7 +575,9 @@ await check("a probe failure at any step refuses the export", async () => {
 });
 
 check("the refusal message is the one the user sees", () => {
-  eq(core.ENCRYPTED_MSG, "This PDF is password-protected and can't be split", "message");
+  eq(core.ENCRYPTED_MSG,
+     "This PDF is locked by the tool that created it and can't be split. "
+     + "Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.", "message");
 });
 })();
 

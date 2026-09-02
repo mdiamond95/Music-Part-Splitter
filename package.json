@@ -9,7 +9,9 @@
     "export": "node tools/export.mjs",
     "stamp": "node tools/stamp.mjs",
     "hooks": "git config core.hooksPath .githooks && echo \"hooks installed: .githooks\"",
-    "diagnose": "node tools/diagnose.mjs"
+    "diagnose": "node tools/diagnose.mjs",
+    "margins": "node tools/margins.mjs",
+    "test": "npm run check && npm run margins && npm run export"
   },
   "dependencies": {
     "pdfjs-dist": "3.11.174",

@@ -9,7 +9,7 @@
 //   npm run export -- fixtures/mlb.pdf [more.pdf ...]
 //   npm run export -- --write out/   (also writes the part PDFs, to open by hand)
 
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve, basename, join } from "node:path";
@@ -47,6 +47,12 @@ async function readPages(file){
   return { pages, numbers };
 }
 
+// Fixtures that are expected to refuse. mlb.pdf is kept encrypted on purpose — it is the only local
+// evidence that the guard fires at all — and mlb-dec.pdf is the same set with the encryption stripped
+// (`qpdf --decrypt`), which is the only local evidence that the same 46 pages export cleanly once it
+// is gone. Both directions are asserted: a fixture that starts refusing, or stops refusing, fails.
+const EXPECT_GUARD = new Set(["mlb.pdf"]);
+
 let failed = 0;
 async function exportFile(file, outDir){
   const name = basename(file);
@@ -63,11 +69,17 @@ async function exportFile(file, outDir){
 
   console.log(`\n=== ${name} — ${pages.length} pages, ${groups.size} parts ===`);
   console.log(`prefix: ${prefix}`);
+  const expected = EXPECT_GUARD.has(name);
   if(!ok){
     console.log(`GUARD FIRES -> "${core.ENCRYPTED_MSG}"`);
     console.log(`  nothing exported; no partial ZIP is built`);
+    if(!expected){ console.log(`  FAIL  this fixture is not expected to refuse`); failed++; }
+    else console.log(`  ok    expected: this fixture is the guard's evidence`);
+    return { file:name, parts:groups.size, exported:0, guard:true, expected };
+  }
+  if(expected){
+    console.log(`  FAIL  the guard was expected to fire on this fixture and did not`);
     failed++;
-    return { file:name, parts:groups.size, exported:0, guard:true };
   }
 
   const names = [...groups.keys()].sort((a,b)=>core.partOrder(a)-core.partOrder(b));
@@ -91,18 +103,28 @@ async function exportFile(file, outDir){
     console.log(`  ok  ${String(pageNums.length).padStart(2)}p  ${String(Math.round(out.length/1024)).padStart(5)} KB  ${fname}`);
   }
   console.log(`  ${names.length} parts, ${Math.round(total/1024)} KB total`);
-  return { file:name, parts:groups.size, exported:names.length, guard:false };
+  return { file:name, parts:groups.size, exported:names.length, guard:false, expected };
 }
 
 const argv = process.argv.slice(2);
 const wi = argv.indexOf("--write");
 const outDir = wi >= 0 ? resolve(ROOT, argv[wi+1]) : null;
-const files = argv.filter((a,i) => !a.startsWith("--") && !(wi >= 0 && i === wi+1));
-if(!files.length){ console.error("usage: npm run export -- [--write <dir>] <file.pdf> [more.pdf ...]"); process.exit(1); }
+const named = argv.filter((a,i) => !a.startsWith("--") && !(wi >= 0 && i === wi+1));
+// No arguments means every fixture, so the suite covers the guard and its decrypted twin without
+// anyone having to remember to name them.
+const dir = resolve(ROOT, "fixtures");
+const files = named.length ? named.map(a => resolve(ROOT, a))
+  : (existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith(".pdf")).sort().map(f => join(dir, f)) : []);
+if(!files.length){
+  console.log("\nno fixtures present — nothing to export (they are gitignored; see docs/baselines.md)\n");
+  process.exit(0);
+}
 
 const rows = [];
-for(const f of files) rows.push(await exportFile(resolve(ROOT, f), outDir));
+for(const f of files) rows.push(await exportFile(f, outDir));
 console.log("\n| fixture | parts | exported | guard |");
 console.log("| --- | --- | --- | --- |");
-for(const r of rows) console.log(`| ${r.file} | ${r.parts} | ${r.exported} | ${r.guard ? "**fires**" : "—"} |`);
-console.log(failed ? `\n${failed} fixture(s) could not be exported\n` : "\nevery fixture exported\n");
+for(const r of rows)
+  console.log(`| ${r.file} | ${r.parts} | ${r.exported} | ${r.guard ? (r.expected ? "**fires** (expected)" : "**fires**") : "—"} |`);
+console.log(failed ? `\n${failed} fixture(s) did not do what was expected of them\n` : "\nevery fixture behaved as expected\n");
+process.exit(failed ? 1 : 0);

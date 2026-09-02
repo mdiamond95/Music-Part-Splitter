@@ -11,11 +11,17 @@ harness below run the **shipped** code rather than a copy of it.
 ## The harness
 
 ```
+npm test                                # check + margins + export, the whole suite
 npm run map    -- fixtures/mlb.pdf      # page -> part map for one or more PDFs, no browser
 npm run check                           # rule checks for the cases no fixture exercises
-npm run export -- fixtures/mlb.pdf      # the real export path, headless: guard, copy, save, verify
+npm run margins                         # the dead band around FIRST_PAGE_PT, across every fixture
+npm run export                          # the real export path, headless: guard, copy, save, verify
 npm run diagnose -- fixtures/mlb.pdf 19-46   # per-page evidence: labels, sizes, positions, verdicts
 ```
+
+`margins` and `export` take every fixture when given no arguments. `export` asserts the encryption
+guard in both directions — `mlb.pdf` is kept encrypted and must refuse; `mlb-dec.pdf`
+(`qpdf --decrypt fixtures/mlb.pdf fixtures/mlb-dec.pdf`) is the same set and must export all 16 parts.
 
 `npm run map -- --no-dedupe` keeps duplicate copies. `npm run export -- --write out/` writes the part
 PDFs to disk so they can be opened by hand.
