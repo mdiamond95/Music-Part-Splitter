@@ -8,7 +8,8 @@
     "check": "node tools/checks.mjs",
     "export": "node tools/export.mjs",
     "stamp": "node tools/stamp.mjs",
-    "hooks": "git config core.hooksPath .githooks && echo \"hooks installed: .githooks\""
+    "hooks": "git config core.hooksPath .githooks && echo \"hooks installed: .githooks\"",
+    "diagnose": "node tools/diagnose.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "3.11.174",

@@ -613,3 +613,105 @@ beside it. The tolerance is built anyway — series names are matched with every
 the page's items joined rather than one at a time, so a dropout falling *inside* a name
 (`Judd Street Collec` · `on`) is matched too — and `npm run check` is what holds it, since no fixture
 exercises it.
+
+## Export: what a permissions-encrypted source does
+
+`npm run export -- fixtures/*.pdf`, which runs the real export path headlessly — the same `plan`, the
+same pdf-lib calls, the same guard — and then re-opens every part PDF it wrote to confirm the page
+count matches the plan.
+
+| fixture | parts | exported | guard |
+| --- | --- | --- | --- |
+| `regression.pdf` | 16 | 16 | — |
+| `multipage.pdf` | 23 | 23 | — |
+| `score.pdf` | 21 | 21 | — |
+| `scorefront.pdf` | 17 | 17 | — |
+| `carols.pdf` | 17 | 17 | — |
+| `encore.pdf` | 24 | 24 | — |
+| `unity.pdf` | 18 | 18 | — |
+| `mlb.pdf` | 16 | **0** | **fires** |
+
+### `ignoreEncryption: true` does not make mlb.pdf exportable
+
+The encryption dictionary reads `/Filter/Standard /V 5 /R 6 /CF<</StdCF<</CFM/AESV3 …>>>` `/Length 256`
+`/P -1052` — AES-256 with an empty user password and permissions restrictions, the shape a web PDF tool
+leaves behind. pdf.js decrypts that without being asked, which is why all 46 pages read, detect,
+thumbnail and plan perfectly. **pdf-lib 1.17.1 has no decryption at all.** `ignoreEncryption` only
+suppresses its refusal to load; every string and stream behind the door is still ciphertext, so:
+
+```
+PDFDocument.load(bytes)                          -> "Input document to `PDFDocument.load` is encrypted."
+PDFDocument.load(bytes, {ignoreEncryption:true}) -> loads
+  .getPageCount() / .copyPages()                 -> "Expected instance of PDFDict, but got instance of undefined"
+```
+
+So the guard is not a formality on this fixture — it is the whole outcome. The probe copies page 1 into
+a new document and saves it; that throws, nothing is built, and the user is told rather than handed a
+ZIP with sixteen broken files in it. pdf-lib has had no release since 2021, so this will not fix itself.
+
+The wording shown is `This PDF is password-protected and can't be split`. It is not strictly accurate
+here — no password is needed, and the app plainly read the file — but it is the string specified.
+
+## Diagnostics — `npm run diagnose`
+
+Per-page evidence: every label found with its text, size and position; the first-page verdict with both
+halves of the test spelled out; what detected, what resolved, and the final group. The accumulator it
+walks is the one `detectPart` walks, so a label split across two text items (`Bass E` · `b`) is reported
+where it is actually matched rather than being reported as absent.
+
+### mlb.pdf pp.19–46 — the map is right, and one number is far closer than it looks
+
+All fifteen parts resolve from their own header on their own page. Nothing inherits, nothing is weak,
+nothing is red. Twelve two-page parts, three one-page parts (Soprano p.19, Percussion I p.44, and the
+score's own run above).
+
+The continuation pages are held apart from the parts they follow by one number:
+
+```
+p.20  first: YES  No. "No. 115" 20.07pt; title 24.985pt >= 12 by 12.985
+p.21  first: no   no piece number;       title 11.961pt <  12 by  0.039
+```
+
+**Every continuation page in this set sits 0.039pt below `FIRST_PAGE_PT`.** The running head is set at a
+nominal 12pt and arrives at 11.961 — a 0.9967 scale, the fingerprint of a tool that re-imposed the page.
+Measured across the corpus, the margin below the threshold on every other set:
+
+| fixture | largest continuation-page title | margin below 12pt |
+| --- | --- | --- |
+| `unity.pdf` | 9.718 | 2.282 |
+| `multipage.pdf` | 9.992 | 2.008 |
+| `encore.pdf` | 9.992 | 2.008 |
+| `score.pdf` | 11.000 | 1.000 |
+| `carols.pdf` | 11.074 | 0.926 |
+| `mlb.pdf` | **11.961** | **0.039** |
+
+Twenty-four times tighter than the next worst. If anything moved that number up by a third of one
+percent — a different pdf.js, a source re-exported by another tool — every continuation page in the set
+would read as a first page, and all twelve two-page parts would come apart into twenty-four one-page
+parts. That is exactly the symptom being reported from the device. **No code was changed for this:
+`FIRST_PAGE_PT` is still 12 and the fixture still passes.** Recording it as the next thing to fix.
+
+Ruled out as the cause of a device/harness split: `useSystemFonts` (the harness pins it `false`, the
+browser defaults it `true`) — re-running the whole map with it `true` gives a byte-identical plan.
+
+### Can the review table show something `plan()` did not say?
+
+No. There is one implementation of grouping, `plan()` at `index.html:665`, and `groups` is built nowhere
+else. `render()` and `exportParts()` each call `currentPlan()` and read the same `{groups, status}`;
+the table's status column is `status[n].label`, the dropdown's value is `status[n].part`, the button's
+count is `groups.size`, and the exported file list is `groups` itself. No second grouping pass, no
+per-row recomputation.
+
+Three things do make the app's answer legitimately differ from `npm run map`'s, none of them a bug:
+
+1. **The dedupe checkbox.** `currentPlan()` reads it live; `map` defaults it on. Both default to on
+   (`index.html:197` carries `checked`), so they agree unless it is unticked.
+2. **Dropdown overrides.** A choice writes `p.override` and outranks everything, including the score
+   signal. `map` never has any.
+3. **The page records.** They come from whichever pdf.js read the file. The app loads 3.11.174 from
+   cdnjs and the harness runs the same version's legacy build, so they should agree — but this is the
+   one place a device could diverge, and the 0.039pt margin above is what it would divide.
+
+One sharp edge worth knowing: an inherited page shows its *effective* part in the dropdown, not
+"inherit". Re-picking the value already displayed turns it into an explicit override — same result
+here, but it pins the page against later changes upstream of it.
