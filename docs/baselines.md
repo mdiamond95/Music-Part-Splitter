@@ -807,3 +807,59 @@ The guard message now names the way out:
 This PDF is locked by the tool that created it and can't be split.
 Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.
 ```
+
+## CHANGES6 Phase 1 — which unlocker, and why
+
+Four qpdf-to-WebAssembly builds were fetched from their CDN URLs and run against `fixtures/mlb.pdf`
+in Node 24. The requirement that decided it is the harness one: the same code has to run in Safari and
+in Node, or the suite is testing something the tester never uses.
+
+| build | licence | size | Node | verdict |
+| --- | --- | --- | --- | --- |
+| `qpdf-wasm-esm-embedded@1.1.1` | Apache-2.0 | 1.75 MB (wasm embedded as base64) | **fails** | glue uses `__dirname` beside a top-level await; Node 24 refuses the file outright with `ERR_AMBIGUOUS_MODULE_SYNTAX` |
+| `qpdf-wasm@0.1.0` | Apache-2.0, ships LICENSE | 43 KB + 2.26 MB | **fails** | browser-only build — `ReferenceError: self is not defined` |
+| `@jspawn/qpdf-wasm@0.0.2` | Apache-2.0, ships LICENSE | 53 KB + 1.27 MB | **fails** | 2022 emscripten glue; cannot resolve its own `.wasm` in Node under either a path or a `file://` URL |
+| **`@neslinesli93/qpdf-wasm@0.3.0`** | ISC declared (see below) | **43 KB + 1.33 MB** | **works** | 25 ms init, 217 ms to decrypt the 46-page fixture |
+
+### The chosen build, measured
+
+```
+https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.js     43,376 bytes
+https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.wasm 1,334,286 bytes
+```
+
+Both pinned to an exact version. Neither is fetched on page load — only when the export probe has
+already failed, which on every fixture but one is never. Emscripten's standard factory shape, so the
+same two lines drive it from a `<script>` tag and from `require()`.
+
+All three cases behave distinguishably, which is what the two messages rest on:
+
+| input | exit | output |
+| --- | --- | --- |
+| `mlb.pdf` — R6/AESV3, empty user password | **0** | 1,913,479 bytes, loads in pdf-lib, 46 pages |
+| the same set re-encrypted with `--user-password=secret` | **2** | no output file, "invalid password" |
+| `unity.pdf` — not encrypted | 0 | (never reached; the probe passes so the unlocker is not loaded) |
+
+The output is not byte-identical to `qpdf --decrypt` 11.9.0's — a different qpdf build writes a
+different `/ID` — but it is the same 46 pages and pdf-lib copies from it happily. Phase 3 compares page
+structure against `mlb-dec.pdf`, not bytes.
+
+### The licence flag, stated plainly
+
+`@neslinesli93/qpdf-wasm` declares **ISC** in its `package.json` and ships **no LICENSE file**, while
+the thing it actually contains is qpdf, which is **Apache-2.0**. That mismatch is the one real mark
+against this build; the two rejected alternatives both ship the Apache text correctly. It does not
+block use here — the page links to a CDN rather than redistributing the binary, so what is owed is
+attribution, which the README now carries — but it is worth knowing, and it is the reason to keep the
+version pinned rather than floating.
+
+### Why not Web Crypto
+
+The fallback in the brief — R6/AESV3 decryption by hand — was costed and rejected. The cryptography is
+the easy half: Algorithm 2.B's hardened hash needs unpadded AES-CBC, which Web Crypto can be coaxed
+into (drop the trailing padding block on encrypt; append `E(K, pad ⊕ Cₙ)` before decrypt). The hard
+half is that decrypting a PDF is not decrypting a byte range — every string and every stream in the
+file is separately enciphered, so it means walking the xref, the object streams and the trailer, and
+then writing a valid PDF back out. That is a PDF writer, and there is one of those in the page already
+that took a round to trust. 1.33 MB fetched once, on the one document in nine that needs it, is the
+cheaper trade.
