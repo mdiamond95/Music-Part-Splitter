@@ -17,7 +17,8 @@ import { dirname, resolve } from "node:path";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix",
   "detectPart", "matchPart", "matchCombined", "matchPartInKey", "labelCount", "partOrder", "partOptions",
-  "stitch", "isFirstPage", "hasPieceNumber", "abbrevColumn", "SCORE_ABBREVS", "SCORE_LABELS", "pageRecord"];
+  "stitch", "isFirstPage", "hasPieceNumber", "abbrevColumn", "SCORE_ABBREVS", "SCORE_LABELS", "pageRecord",
+  "canCopyPages", "ENCRYPTED_MSG"];
 const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
 const m = html.match(/<script id="core">([\s\S]*?)<\/script>/);
 if(!m) throw new Error('index.html has no <script id="core"> block');
@@ -25,7 +26,16 @@ const core = new Function(`${m[1]}\nreturn {${CORE_EXPORTS.join(",")}};`)();
 
 let failed = 0;
 function check(name, fn){
-  try{ fn(); console.log(`  ok    ${name}`); }
+  try{
+    const r = fn();
+    // Most checks are synchronous. The export probe is not — it is an async function in the shipped
+    // code — so a check that returns a promise is awaited, and the caller awaits the check.
+    if(r && typeof r.then === "function"){
+      return r.then(() => console.log(`  ok    ${name}`),
+                    e => { failed++; console.log(`  FAIL  ${name}\n        ${e.message}`); });
+    }
+    console.log(`  ok    ${name}`);
+  }
   catch(e){ failed++; console.log(`  FAIL  ${name}\n        ${e.message}`); }
 }
 function eq(actual, expected, what){
@@ -534,6 +544,40 @@ check("half a cue names nothing", () => {
   eq(only(["SASB 126", 20, 540], ["No. 115", 14, 520], ["A Title", 28, 466]), null, "SASB 126");
   eq(only(["TB 857", 20, 540], ["No. 115", 14, 520], ["A Title", 28, 466]), null, "TB 857");
 });
+
+console.log("\nCHANGES5 — the export guard\n");
+
+// A stand-in for pdf-lib's PDFDocument, with each step able to fail the way the real one does on an
+// encrypted source. mlb.pdf fails at copyPages: PDFDocument.load(..., {ignoreEncryption:true})
+// returns a document whose page tree is still ciphertext, so the first lookup throws
+// "Expected instance of PDFDict, but got instance of undefined".
+const fakeDoc = (failAt) => ({
+  copyPages: async (src, idx) => {
+    if(failAt === "copy") throw new Error("Expected instance of PDFDict, but got instance of undefined");
+    return idx.map(i => ({page:i}));
+  },
+  addPage(){ if(failAt === "add") throw new Error("addPage failed"); },
+  save: async () => { if(failAt === "save") throw new Error("save failed"); return new Uint8Array([1,2,3]); },
+});
+const quiet = async fn => { const w = console.warn; console.warn = () => {}; try{ return await fn(); } finally { console.warn = w; } };
+
+await (async () => {
+await check("a document that copies and saves one page passes the probe", async () => {
+  eq(await core.canCopyPages({}, async () => fakeDoc(null)), true, "probe");
+});
+
+await check("a probe failure at any step refuses the export", async () => {
+  for(const step of ["copy", "add", "save"]){
+    eq(await quiet(() => core.canCopyPages({}, async () => fakeDoc(step))), false, `failure at ${step}`);
+  }
+  // And a create() that throws outright — the shape of a load that came back unusable.
+  eq(await quiet(() => core.canCopyPages({}, async () => { throw new Error("nope"); })), false, "create throws");
+});
+
+check("the refusal message is the one the user sees", () => {
+  eq(core.ENCRYPTED_MSG, "This PDF is password-protected and can't be split", "message");
+});
+})();
 
 check("the dropdown offers the shared parts this document prints", () => {
   const pages = [{detected:"1st Baritone/Trombone Bb"}, {detected:"Soprano Eb"}, {detected:null, override:core.SKIP}];

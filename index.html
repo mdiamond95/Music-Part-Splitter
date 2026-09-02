@@ -840,6 +840,36 @@ function defaultPrefix(pages, status, numbers, fileName){
   const nums = [...numbers].sort((a,b)=>a-b);
   return nums.length ? nums.join("-") : fileName.replace(/\.pdf$/i,"");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Can this document be copied at all?
+//
+// Sets arrive having been through a web PDF tool, and some come back with permissions encryption
+// bolted on — mlb.pdf carries /Filter/Standard /R 6 /CFM/AESV3, AES-256 with an empty user password
+// and /P -1052. pdf.js decrypts that without being asked, which is why every page of such a set reads,
+// detects and thumbnails perfectly; pdf-lib does not decrypt at all. Loading with
+// `{ ignoreEncryption: true }` only stops it refusing at the door — the strings and streams behind
+// that door are still ciphertext, so the page tree resolves to nothing and the first copyPages throws.
+//
+// There is no flag that tells the two cases apart before the fact, so this asks the question by doing
+// the smallest possible version of the work: copy one page into a new document and save it. If those
+// bytes come back, the export can be built; if anything throws, nothing is built and the user is told
+// why. Handed a `create` function rather than reaching for PDFLib, so the core block stays free of
+// browser globals and the harness can drive it.
+async function canCopyPages(src, create){
+  try{
+    const probe = await create();
+    const [first] = await probe.copyPages(src, [0]);
+    probe.addPage(first);
+    await probe.save();
+    return true;
+  }catch(e){
+    // The caller reports; the reason is only ever useful in the console.
+    if(typeof console !== "undefined") console.warn("Export probe failed:", e);
+    return false;
+  }
+}
+const ENCRYPTED_MSG = "This PDF is password-protected and can't be split";
 </script>
 
 <script>
@@ -947,7 +977,16 @@ async function exportParts(){
   const prefix = safeName($("prefix").value)||"parts";
   $("export").disabled = true; setOut("Building files…");
   try{
-    const src = await PDFLib.PDFDocument.load(state.bytes);
+    // ignoreEncryption gets a permissions-encrypted set past the door; canCopyPages decides whether
+    // anything behind it can actually be read. Both have to hold before a single part is built, so a
+    // set that cannot be split says so instead of half-filling a ZIP.
+    let src = null;
+    try{ src = await PDFLib.PDFDocument.load(state.bytes, {ignoreEncryption:true}); }
+    catch(e){ console.warn("PDF load failed:", e); }
+    if(!src || !await canCopyPages(src, () => PDFLib.PDFDocument.create())){
+      setOut(ENCRYPTED_MSG, "err");
+      return;
+    }
     const zip = new JSZip(); const list = $("files"); list.innerHTML="";
     const names = [...groups.keys()].sort((a,b)=>partOrder(a)-partOrder(b));
     for(const part of names){
