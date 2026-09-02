@@ -29,6 +29,36 @@ PDFs to disk so they can be opened by hand.
 Fixtures are gitignored — they are real published sets. `docs/baselines.md` is the committed record of
 what each one produces, so a change can always be checked against a known "before".
 
+## Unlocking
+
+A set that has been through a web PDF tool often comes back with permissions encryption: AES-256, an
+empty user password, and a `/P` word that forbids extraction. pdf.js reads it without being asked, so
+the whole document detects and thumbnails normally — but pdf-lib has no decryption at all, so the
+export used to be a dead end.
+
+The page now offers to undo it. When the export probe fails it shows **Unlock and export**; pressing it
+fetches qpdf compiled to WebAssembly, decrypts in memory, re-runs the probe, and carries on. Nothing is
+uploaded, nothing is written to disk, and the source bytes are not modified — the decrypted copy exists
+only for the length of the export.
+
+The module is fetched **only when the probe has already failed**, from a pinned version:
+
+```
+https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.js      43 KB
+https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.wasm  1.33 MB
+```
+
+A file with a *real* user password is a different case and still refuses, with wording that says so —
+no button can recover bytes that are not there without the password.
+
+The harness runs the same `unlockPdf` from the same pinned version, installed as a devDependency; only
+the two lines that fetch the module differ (a `<script>` tag there, `require()` here).
+
+> **Attribution.** The WebAssembly module is a build of [qpdf](https://github.com/qpdf/qpdf), which is
+> licensed **Apache-2.0**. The npm wrapper `@neslinesli93/qpdf-wasm` declares ISC in its `package.json`
+> and ships no LICENSE file; the licence that governs the compiled code is qpdf's. The page links to
+> the CDN rather than redistributing the binary. Keep the version pinned.
+
 ## The build stamp
 
 The page footer reads `build <short hash> · <date>`. It is written into `index.html` by

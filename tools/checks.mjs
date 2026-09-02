@@ -587,6 +587,90 @@ check("the two refusals say different things", () => {
 });
 })();
 
+console.log("\nCHANGES6 — unlocking a permissions-locked set\n");
+
+// A stand-in for the qpdf-wasm module. The exit codes are the real ones, measured against the real
+// build in Phase 1 and recorded in docs/baselines.md: 0 with an output file for a set locked with an
+// empty user password, 2 and no output file for one with a real password.
+const OUT = new Uint8Array([0x25,0x50,0x44,0x46]);   // "%PDF"
+const fakeQpdf = (code, { emptyOutput = false, throwStatus = null } = {}) => {
+  const files = new Map();
+  return {
+    loads: 0,
+    FS: {
+      writeFile(path, data){ files.set(path, data); },
+      readFile(path){
+        if(code !== 0) throw new Error(`ENOENT: ${path}`);
+        return emptyOutput ? new Uint8Array(0) : OUT;
+      },
+    },
+    callMain(args){
+      if(throwStatus !== null){ const e = new Error("exit"); e.status = throwStatus; throw e; }
+      return code;
+    },
+    seen: files,
+  };
+};
+
+await (async () => {
+await check("an empty-password lock is undone and the bytes come back", async () => {
+  const q = fakeQpdf(0);
+  const src = new Uint8Array([1,2,3,4]);
+  const steps = [];
+  const r = await core.unlockPdf(src, async () => q, s => steps.push(s));
+  eq(r.ok, true, "ok");
+  eq([...r.bytes], [...OUT], "returned bytes");
+  eq(steps, ["loading", "unlocking"], "progress steps");
+  // The source is handed over as a copy and is never touched.
+  eq([...src], [1,2,3,4], "source bytes mutated");
+  eq([...q.seen.get("/in.pdf")], [1,2,3,4], "what was handed to qpdf");
+});
+
+await check("a real password refuses, and says the other thing", async () => {
+  const r = await quiet(() => core.unlockPdf(new Uint8Array([1]), async () => fakeQpdf(2)));
+  eq([r.ok, r.reason], [false, "password"], "result");
+  // Some builds throw ExitStatus instead of returning it; both routes reach the same answer.
+  const t = await quiet(() => core.unlockPdf(new Uint8Array([1]), async () => fakeQpdf(0, {throwStatus:2})));
+  eq([t.ok, t.reason], [false, "password"], "thrown ExitStatus");
+});
+
+await check("a broken document, and an empty result, are failures not passwords", async () => {
+  const r = await quiet(() => core.unlockPdf(new Uint8Array([1]), async () => fakeQpdf(3)));
+  eq([r.ok, r.reason], [false, "failed"], "exit 3");
+  // Exit 0 with a zero-length file is a failure the exit code did not report.
+  const e = await quiet(() => core.unlockPdf(new Uint8Array([1]), async () => fakeQpdf(0, {emptyOutput:true})));
+  eq([e.ok, e.reason], [false, "failed"], "empty output");
+});
+
+await check("an unreachable unlocker is reported as such, not as a password", async () => {
+  const r = await quiet(() => core.unlockPdf(new Uint8Array([1]), async () => { throw new Error("offline"); }));
+  eq([r.ok, r.reason], [false, "unavailable"], "result");
+});
+
+await check("the unlocker is not loaded for a document that copies", async () => {
+  // The page only calls unlockPdf after canCopyPages has already failed, so a document that copies
+  // never reaches it. Asserted the way the page is wired: probe first, and count the loads.
+  let loads = 0;
+  const load = async () => { loads++; return fakeQpdf(0); };
+  const ok = await core.canCopyPages({}, async () => fakeDoc(null));
+  if(!ok) await core.unlockPdf(new Uint8Array([1]), load);
+  eq([ok, loads], [true, 0], "probe passed, so no fetch");
+  // And when the probe does fail, it is loaded exactly once however many times the result is reused.
+  const bad = await quiet(() => core.canCopyPages({}, async () => fakeDoc("copy")));
+  if(!bad) await core.unlockPdf(new Uint8Array([1]), load);
+  eq([bad, loads], [false, 1], "probe failed, so one fetch");
+});
+
+await check("the probe runs again on the unlocked bytes", async () => {
+  // The unlocked document is not trusted because qpdf said 0 — it goes through the same probe the
+  // original failed, which is what stops a half-decrypted file reaching the ZIP.
+  const r = await core.unlockPdf(new Uint8Array([1]), async () => fakeQpdf(0));
+  eq(r.ok, true, "unlocked");
+  eq(await core.canCopyPages({}, async () => fakeDoc(null)), true, "re-probe passes");
+  eq(await quiet(() => core.canCopyPages({}, async () => fakeDoc("copy"))), false, "re-probe can still fail");
+});
+})();
+
 check("the dropdown offers the shared parts this document prints", () => {
   const pages = [{detected:"1st Baritone/Trombone Bb"}, {detected:"Soprano Eb"}, {detected:null, override:core.SKIP}];
   const opts = core.partOptions(pages);

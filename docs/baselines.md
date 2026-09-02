@@ -863,3 +863,57 @@ file is separately enciphered, so it means walking the xref, the object streams 
 then writing a valid PDF back out. That is a PDF writer, and there is one of those in the page already
 that took a round to trust. 1.33 MB fetched once, on the one document in nine that needs it, is the
 cheaper trade.
+
+## After CHANGES6 — the export table
+
+`npm run export`, which now runs the page's whole flow: probe, and where it fails, unlock and probe
+again. Every part is re-opened after saving and its page count checked against the plan.
+
+| fixture | parts | exported | lock |
+| --- | --- | --- | --- |
+| `regression.pdf` | 16 | 16 | — |
+| `multipage.pdf` | 23 | 23 | — |
+| `score.pdf` | 21 | 21 | — |
+| `scorefront.pdf` | 17 | 17 | — |
+| `carols.pdf` | 17 | 17 | — |
+| `encore.pdf` | 24 | 24 | — |
+| `unity.pdf` | 18 | 18 | — |
+| `mlb.pdf` | 16 | **16** | **unlocked** |
+| `mlb-dec.pdf` | 16 | 16 | — |
+
+```
+mlb.pdf: unlocked in 221 ms (1 module load), 1913479 bytes
+unlocker loaded 1 time(s) — not fetched for any unencrypted fixture
+mlb.pdf unlocked and mlb-dec.pdf produce identical page structure across all 16 parts
+```
+
+Three assertions ride on that output, and all three fail the run if they break: the unlocked route and
+the pre-decrypted route must agree part for part; the module must be fetched at most once across a
+whole run; and a fixture that starts — or stops — needing the unlocker is a failure either way.
+
+### The two encrypted cases, end to end against the real module
+
+Not the stub: the shipped `unlockPdf`, driven by the real `@neslinesli93/qpdf-wasm@0.3.0`.
+
+```
+permissions-locked (mlb.pdf)   -> ok=true  reason=-        bytes=1913479
+real user password (pw.pdf)    -> ok=false reason=password bytes=-
+```
+
+`pw.pdf` is `mlb-dec.pdf` re-encrypted with `--user-password=secret --bits=256`. It is not a committed
+fixture — it is generated when this case is being checked by hand, since a set nobody can open is not
+much use as a fixture.
+
+### Detection
+
+**The nine-row map is byte-identical across this round** — measured by diffing the whole `npm run map`
+output against the commit before it. Nothing in this round touches detection; pdf.js could always read
+these files, and the review table is built from what it read, not from the unlocked copy.
+
+### What "in memory" means here
+
+qpdf's WebAssembly build takes file paths, so the bytes go through emscripten's MEMFS at `/in.pdf` and
+come back from `/out.pdf`. That is a path-shaped API over RAM, not the device's storage: nothing
+touches the filesystem, nothing leaves the tab, and the original `state.bytes` are handed over as a
+copy and never modified. The unlocked bytes live in `state.unlocked` for the length of the export and
+are replaced the moment another document is loaded.
