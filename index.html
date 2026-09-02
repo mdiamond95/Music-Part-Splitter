@@ -209,13 +209,14 @@
     <div class="actions">
       <button class="primary" id="export">Export parts</button>
       <button class="quiet" id="reset">Start over</button>
+      <button class="primary hidden" id="unlock">Unlock and export</button>
       <span class="out" id="out"></span>
     </div>
     <ul class="files" id="files"></ul>
   </section>
   <!-- Build stamp. tools/stamp.mjs rewrites the span's text, and nothing else on the line; the
        markers are what it anchors to, so leave them alone. -->
-  <footer class="build">build <span id="build"><!--BUILD-->5253e4b · 2026-09-02<!--/BUILD--></span></footer>
+  <footer class="build">build <span id="build"><!--BUILD-->9f0f66c · 2026-09-02<!--/BUILD--></span></footer>
 </div>
 
 <script id="core">
@@ -885,8 +886,58 @@ async function canCopyPages(src, create){
     return false;
   }
 }
-const ENCRYPTED_MSG = "This PDF is locked by the tool that created it and can't be split. "
-  + "Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.";
+// Two refusals, because they are two different situations for the person holding the iPad.
+//
+// A set that has been through a web PDF tool comes back with permissions encryption: AES-256, an
+// EMPTY user password, and a /P word that forbids extraction. Nothing is secret — pdf.js opens it
+// without being asked, which is why the whole document read, detected and thumbnailed. Only pdf-lib
+// cannot cope. That one the page can undo itself, so it is an offer rather than a refusal.
+//
+// A set with a real user password is a different thing entirely, and no button can help: without the
+// password the bytes are not there to copy. That one is a dead end and says so.
+const LOCKED_MSG   = "This PDF is locked by the tool that created it.";
+const LOCKED_HINT  = "Nothing is password-protected — the lock only blocks copying. Unlock it here and the export continues.";
+const PASSWORD_MSG = "This PDF is password-protected and can't be split.";
+const PASSWORD_HINT = "It needs the password it was encrypted with. Open it with the password, save an unprotected copy, and load that.";
+const UNLOCK_FAILED_MSG = "The unlocker could not be loaded — check the connection and try again.";
+
+// Undo permissions encryption, in memory.
+//
+// qpdf does the work; see docs/baselines.md for which build and why. `loadQpdf` is injected rather
+// than reached for, so this stays free of browser globals and the harness can drive the identical
+// function with the identical module. It is called only after the probe has already failed, so an
+// unencrypted document never pays for the 1.33 MB the module costs.
+//
+// The virtual filesystem is emscripten's MEMFS: RAM with a path-shaped API, not the device's disk.
+// The source bytes are handed over as a copy and are never modified.
+const QPDF_IN = "/in.pdf", QPDF_OUT = "/out.pdf";
+async function unlockPdf(bytes, loadQpdf, onStep){
+  let qpdf;
+  try{
+    if(onStep) onStep("loading");
+    qpdf = await loadQpdf();
+  }catch(e){
+    if(typeof console !== "undefined") console.warn("Unlocker failed to load:", e);
+    return { ok:false, reason:"unavailable" };
+  }
+  try{
+    if(onStep) onStep("unlocking");
+    qpdf.FS.writeFile(QPDF_IN, new Uint8Array(bytes));
+    // Exit code, not stderr: qpdf writes its diagnostics straight to fd 2, which does not always
+    // reach the module's printErr hook. 0 is a decrypted file, 2 is "invalid password", and anything
+    // else is a malformed document — none of which the page can do anything about beyond saying so.
+    const code = qpdf.callMain(["--decrypt", QPDF_IN, QPDF_OUT]);
+    if(code !== 0) return { ok:false, reason: code === 2 ? "password" : "failed", code };
+    const out = qpdf.FS.readFile(QPDF_OUT);
+    // A zero-length result is a failure the exit code did not report; treat it as one.
+    return out && out.length ? { ok:true, bytes:out } : { ok:false, reason:"failed" };
+  }catch(e){
+    if(typeof console !== "undefined") console.warn("Unlock failed:", e);
+    // callMain throws ExitStatus on a non-zero exit in some builds; read the status where it carries one.
+    if(e && e.status === 2) return { ok:false, reason:"password" };
+    return { ok:false, reason:"failed" };
+  }
+}
 </script>
 
 <script>
@@ -904,6 +955,7 @@ $("reset").addEventListener("click",()=>location.reload());
 $("prefix").addEventListener("input",updateExample);
 $("dedupe").addEventListener("change",render);
 $("export").addEventListener("click",exportParts);
+$("unlock").addEventListener("click",unlockAndExport);
 
 function currentPlan(){ return plan(state.pages, $("dedupe").checked); }
 
@@ -935,7 +987,8 @@ async function load(file){
 
   const nums = [...numbers].sort((a,b)=>a-b);
   const titleList = [...titles];
-  state = { bytes, pages, nums, titleList, fileName:file.name };
+  state = { bytes, pages, nums, titleList, fileName:file.name, unlocked:null };
+  hideUnlock();
   const { status } = currentPlan();
 
   $("title").textContent = titleList.length ? titleList.join(" · ") : file.name;
@@ -989,6 +1042,85 @@ function showProgress(done,total,msg){
 }
 function hideProgress(){ $("progress").classList.add("hidden"); $("pbar").style.width="0%"; }
 
+// The unlocker, fetched once and only when it is needed. Pinned to an exact version: see
+// docs/baselines.md for which build, what it measures, and the licence note that goes with it.
+const QPDF_JS   = "https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.js";
+const QPDF_WASM = "https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.wasm";
+let qpdfPromise = null;
+function loadQpdf(){
+  // Memoised on the promise, not on the result, so two clicks cannot start two downloads.
+  if(qpdfPromise) return qpdfPromise;
+  qpdfPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = QPDF_JS;
+    s.onload = () => {
+      // The build exports an emscripten factory as a global. locateFile has to be given the pinned
+      // .wasm URL explicitly: left to itself the glue resolves it beside the page, not beside the CDN
+      // script it came from.
+      const factory = window.Module || window.qpdf;
+      if(typeof factory !== "function"){ reject(new Error("qpdf-wasm did not expose a factory")); return; }
+      factory({ noInitialRun:true, locateFile: () => QPDF_WASM, print(){}, printErr(){} }).then(resolve, reject);
+    };
+    s.onerror = () => reject(new Error(`could not fetch ${QPDF_JS}`));
+    document.head.appendChild(s);
+  });
+  // A failed load must not be remembered, or "try again" could never succeed.
+  qpdfPromise.catch(() => { qpdfPromise = null; });
+  return qpdfPromise;
+}
+
+// Turn the document into something pdf-lib can copy from, or explain why it cannot be done.
+// Returns null when it cannot; the message is already on screen by then.
+async function openSource(bytes){
+  let src = null;
+  try{ src = await PDFLib.PDFDocument.load(bytes, {ignoreEncryption:true}); }
+  catch(e){ console.warn("PDF load failed:", e); }
+  if(src && await canCopyPages(src, () => PDFLib.PDFDocument.create())) return src;
+  offerUnlock();
+  return null;
+}
+
+// The offer. Nothing happens until the button is pressed: the unlocker is a 1.33 MB download and
+// whether to spend it is the user's call, not the page's.
+function offerUnlock(){
+  setOut(`${LOCKED_MSG} ${LOCKED_HINT}`, "err");
+  $("unlock").classList.remove("hidden");
+}
+function hideUnlock(){ $("unlock").classList.add("hidden"); }
+
+async function unlockAndExport(){
+  hideUnlock();
+  $("unlock").disabled = true; $("export").disabled = true;
+  showProgress(0, 0, "Fetching the unlocker\u2026");
+  setOut("Fetching the unlocker\u2026");
+  try{
+    const step = (what) => {
+      const msg = what === "loading" ? "Fetching the unlocker\u2026" : "Unlocking\u2026";
+      setOut(msg); showProgress(what === "loading" ? 1 : 2, 3, msg);
+    };
+    // callMain runs synchronously and holds the main thread for as long as it takes — a fifth of a
+    // second on the local fixture, longer on a tablet. Yield first so the progress bar it will block
+    // is actually on screen before it starts, rather than appearing after the work it describes.
+    const paint = () => new Promise(r => setTimeout(r, 0));
+    const result = await unlockPdf(state.bytes, async () => { const q = await loadQpdf(); await paint(); return q; }, step);
+    if(!result.ok){
+      hideProgress();
+      if(result.reason === "password") setOut(`${PASSWORD_MSG} ${PASSWORD_HINT}`, "err");
+      else if(result.reason === "unavailable"){ setOut(UNLOCK_FAILED_MSG, "err"); offerUnlock(); }
+      else setOut(`${LOCKED_MSG} The unlocker could not read it.`, "err");
+      return;
+    }
+    // The unlocked bytes replace the source for export only. state.pages, and everything the review
+    // table shows, came from pdf.js reading the original and are untouched — pdf.js never needed help.
+    showProgress(3, 3, "Unlocked");
+    state.unlocked = result.bytes;
+    hideProgress();
+    await exportParts();
+  }finally{
+    $("unlock").disabled = false; $("export").disabled = false;
+  }
+}
+
 async function exportParts(){
   const {groups} = currentPlan();
   const prefix = safeName($("prefix").value)||"parts";
@@ -997,11 +1129,10 @@ async function exportParts(){
     // ignoreEncryption gets a permissions-encrypted set past the door; canCopyPages decides whether
     // anything behind it can actually be read. Both have to hold before a single part is built, so a
     // set that cannot be split says so instead of half-filling a ZIP.
-    let src = null;
-    try{ src = await PDFLib.PDFDocument.load(state.bytes, {ignoreEncryption:true}); }
-    catch(e){ console.warn("PDF load failed:", e); }
-    if(!src || !await canCopyPages(src, () => PDFLib.PDFDocument.create())){
-      setOut(ENCRYPTED_MSG, "err");
+    let src = await openSource(state.unlocked || state.bytes);
+    if(!src){
+      // Nothing was built and nothing was said here — offerUnlock has already put either the offer or
+      // the dead-end message on screen.
       return;
     }
     const zip = new JSZip(); const list = $("files"); list.innerHTML="";

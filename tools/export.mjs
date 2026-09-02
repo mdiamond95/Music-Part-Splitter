@@ -20,9 +20,27 @@ console.warn = (...a) => { if(!String(a[0]).includes("Cannot polyfill")) warn(..
 const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 const { PDFDocument } = require("pdf-lib");
 
+// The unlocker, from the same pinned version the page fetches from jsDelivr. Only the two lines that
+// fetch it differ between here and the browser — a <script> tag and a locateFile URL there, require()
+// and a filesystem path here. Everything past that point is core's unlockPdf, unchanged.
+const QPDF_PKG = "@neslinesli93/qpdf-wasm";
+const QPDF_DIR = dirname(require.resolve(`${QPDF_PKG}/dist/qpdf.js`));
+let qpdfPromise = null;
+function loadQpdf(){
+  if(qpdfPromise) return qpdfPromise;
+  const factory = require(`${QPDF_PKG}/dist/qpdf.js`);
+  qpdfPromise = factory({ noInitialRun:true, locateFile: p => resolve(QPDF_DIR, p), print(){}, printErr(){} });
+  qpdfPromise.catch(() => { qpdfPromise = null; });
+  return qpdfPromise;
+}
+// Counts every time the module is actually fetched, so a fixture that should never need it can be
+// asserted never to have paid for it.
+let qpdfLoads = 0;
+const countingLoad = () => { qpdfLoads++; return loadQpdf(); };
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = ["uprightItems", "pageRecord", "scanMeta", "plan", "partOrder", "safeName",
-  "defaultPrefix", "SEP", "canCopyPages", "ENCRYPTED_MSG"];
+  "defaultPrefix", "SEP", "canCopyPages", "unlockPdf", "LOCKED_MSG", "PASSWORD_MSG"];
 
 function loadCore(){
   const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
@@ -47,11 +65,11 @@ async function readPages(file){
   return { pages, numbers };
 }
 
-// Fixtures that are expected to refuse. mlb.pdf is kept encrypted on purpose — it is the only local
-// evidence that the guard fires at all — and mlb-dec.pdf is the same set with the encryption stripped
-// (`qpdf --decrypt`), which is the only local evidence that the same 46 pages export cleanly once it
-// is gone. Both directions are asserted: a fixture that starts refusing, or stops refusing, fails.
-const EXPECT_GUARD = new Set(["mlb.pdf"]);
+// Fixtures that are expected to arrive locked and need unlocking. mlb.pdf is kept encrypted on
+// purpose — it is the only local evidence that the unlock path runs at all — and mlb-dec.pdf is the
+// same set already decrypted, which is the evidence that the two routes end in the same 16 parts.
+// Both directions are asserted: a fixture that starts needing the unlocker, or stops, fails.
+const EXPECT_LOCKED = new Set(["mlb.pdf"]);
 
 let failed = 0;
 async function exportFile(file, outDir){
@@ -69,21 +87,36 @@ async function exportFile(file, outDir){
 
   console.log(`\n=== ${name} — ${pages.length} pages, ${groups.size} parts ===`);
   console.log(`prefix: ${prefix}`);
-  const expected = EXPECT_GUARD.has(name);
+  const expected = EXPECT_LOCKED.has(name);
+  let unlocked = false;
   if(!ok){
-    console.log(`GUARD FIRES -> "${core.ENCRYPTED_MSG}"`);
-    console.log(`  nothing exported; no partial ZIP is built`);
-    if(!expected){ console.log(`  FAIL  this fixture is not expected to refuse`); failed++; }
-    else console.log(`  ok    expected: this fixture is the guard's evidence`);
-    return { file:name, parts:groups.size, exported:0, guard:true, expected };
-  }
-  if(expected){
-    console.log(`  FAIL  the guard was expected to fire on this fixture and did not`);
+    // The page's flow, in the same order: the probe failed, so offer the unlocker, run it, and probe
+    // again. Nothing is written anywhere — the bytes come back from MEMFS straight into pdf-lib.
+    const loadsBefore = qpdfLoads;
+    const t0 = Date.now();
+    const res = await core.unlockPdf(bytes, countingLoad);
+    if(!res.ok){
+      console.log(`REFUSED (${res.reason}) -> "${res.reason === "password" ? core.PASSWORD_MSG : core.LOCKED_MSG}"`);
+      console.log(`  nothing exported; no partial ZIP is built`);
+      if(!expected){ console.log(`  FAIL  this fixture is not expected to refuse`); failed++; }
+      return { file:name, parts:groups.size, exported:0, guard:true, expected, unlocked:false };
+    }
+    console.log(`  unlocked in ${Date.now()-t0} ms (${qpdfLoads - loadsBefore} module load), ${res.bytes.length} bytes`);
+    src = await PDFDocument.load(res.bytes, { ignoreEncryption:true });
+    if(!await core.canCopyPages(src, () => PDFDocument.create())){
+      console.log(`  FAIL  the probe still fails after unlocking`); failed++;
+      return { file:name, parts:groups.size, exported:0, guard:true, expected, unlocked:true };
+    }
+    unlocked = true;
+    if(!expected){ console.log(`  FAIL  this fixture needed unlocking and was not expected to`); failed++; }
+  } else if(expected){
+    console.log(`  FAIL  this fixture was expected to need unlocking and did not`);
     failed++;
   }
 
   const names = [...groups.keys()].sort((a,b)=>core.partOrder(a)-core.partOrder(b));
   let total = 0;
+  const pageCounts = {};
   for(const part of names){
     const pageNums = groups.get(part);
     const doc = await PDFDocument.create();
@@ -98,12 +131,13 @@ async function exportFile(file, outDir){
       failed++;
     }
     total += out.length;
+    pageCounts[part] = back.getPageCount();
     const fname = `${prefix}${core.SEP}${part}.pdf`;
     if(outDir){ mkdirSync(outDir, {recursive:true}); writeFileSync(join(outDir, core.safeName(fname)), out); }
     console.log(`  ok  ${String(pageNums.length).padStart(2)}p  ${String(Math.round(out.length/1024)).padStart(5)} KB  ${fname}`);
   }
   console.log(`  ${names.length} parts, ${Math.round(total/1024)} KB total`);
-  return { file:name, parts:groups.size, exported:names.length, guard:false, expected };
+  return { file:name, parts:groups.size, exported:names.length, guard:false, expected, unlocked, pageCounts };
 }
 
 const argv = process.argv.slice(2);
@@ -122,9 +156,27 @@ if(!files.length){
 
 const rows = [];
 for(const f of files) rows.push(await exportFile(f, outDir));
-console.log("\n| fixture | parts | exported | guard |");
+console.log("\n| fixture | parts | exported | lock |");
 console.log("| --- | --- | --- | --- |");
 for(const r of rows)
-  console.log(`| ${r.file} | ${r.parts} | ${r.exported} | ${r.guard ? (r.expected ? "**fires** (expected)" : "**fires**") : "—"} |`);
+  console.log(`| ${r.file} | ${r.parts} | ${r.exported} | ${r.guard ? "**refused**" : (r.unlocked ? "**unlocked**" : "—")} |`);
+// mlb.pdf is the only fixture that may pay for the unlocker, and it may pay once: the module is
+// memoised, so a second locked document in the same run must not fetch it again.
+const lockedRows = rows.filter(r => EXPECT_LOCKED.has(r.file));
+if(qpdfLoads > (lockedRows.length ? 1 : 0)){
+  console.log(`\nFAIL  the unlocker was loaded ${qpdfLoads} time(s); at most 1 was expected`);
+  failed++;
+}else{
+  console.log(`\nunlocker loaded ${qpdfLoads} time(s) — not fetched for any unencrypted fixture`);
+}
+// The two routes to the same 46 pages have to agree part for part.
+const a = rows.find(r => r.file === "mlb.pdf"), b = rows.find(r => r.file === "mlb-dec.pdf");
+if(a && b && a.pageCounts && b.pageCounts){
+  const same = JSON.stringify(a.pageCounts) === JSON.stringify(b.pageCounts);
+  console.log(same
+    ? `mlb.pdf unlocked and mlb-dec.pdf produce identical page structure across all ${Object.keys(a.pageCounts).length} parts`
+    : `FAIL  mlb.pdf and mlb-dec.pdf disagree on page structure`);
+  if(!same){ failed++; console.log(`  ${JSON.stringify(a.pageCounts)}\n  ${JSON.stringify(b.pageCounts)}`); }
+}
 console.log(failed ? `\n${failed} fixture(s) did not do what was expected of them\n` : "\nevery fixture behaved as expected\n");
 process.exit(failed ? 1 : 0);

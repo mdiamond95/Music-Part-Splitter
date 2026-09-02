@@ -14,7 +14,8 @@
     "test": "npm run check && npm run margins && npm run export"
   },
   "dependencies": {
-    "pdfjs-dist": "3.11.174",
-    "pdf-lib": "1.17.1"
+    "@neslinesli93/qpdf-wasm": "0.3.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "3.11.174"
   }
 }

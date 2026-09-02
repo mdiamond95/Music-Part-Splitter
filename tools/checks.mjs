@@ -18,7 +18,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_EXPORTS = ["PARTS", "SKIP", "SEP", "plan", "safeName", "norm", "seriesName", "defaultPrefix",
   "detectPart", "matchPart", "matchCombined", "matchPartInKey", "labelCount", "partOrder", "partOptions",
   "stitch", "isFirstPage", "hasPieceNumber", "abbrevColumn", "SCORE_ABBREVS", "SCORE_LABELS", "pageRecord",
-  "canCopyPages", "ENCRYPTED_MSG"];
+  "canCopyPages", "LOCKED_MSG", "LOCKED_HINT", "PASSWORD_MSG", "PASSWORD_HINT", "unlockPdf"];
 const html = readFileSync(resolve(ROOT, "index.html"), "utf8");
 const m = html.match(/<script id="core">([\s\S]*?)<\/script>/);
 if(!m) throw new Error('index.html has no <script id="core"> block');
@@ -574,10 +574,16 @@ await check("a probe failure at any step refuses the export", async () => {
   eq(await quiet(() => core.canCopyPages({}, async () => { throw new Error("nope"); })), false, "create throws");
 });
 
-check("the refusal message is the one the user sees", () => {
-  eq(core.ENCRYPTED_MSG,
-     "This PDF is locked by the tool that created it and can't be split. "
-     + "Unlock it once (e.g. qpdf --decrypt, or iLovePDF's Unlock tool) and reload.", "message");
+check("the two refusals say different things", () => {
+  eq(core.LOCKED_MSG, "This PDF is locked by the tool that created it.", "locked");
+  eq(core.PASSWORD_MSG, "This PDF is password-protected and can't be split.", "password");
+  // The distinction that matters is whether the reader is told they need a password they may not
+  // have. The offer says the opposite in as many words; the dead end must not promise a way out.
+  eq(/needs the password|enter (a|the) password/i.test(core.LOCKED_MSG + " " + core.LOCKED_HINT), false,
+     "the offer asks for a password");
+  eq(/Nothing is password-protected/.test(core.LOCKED_HINT), true, "the offer says no password is involved");
+  eq(/unlock it here|unlock and export/i.test(core.PASSWORD_MSG + " " + core.PASSWORD_HINT), false,
+     "the dead end offers an unlock");
 });
 })();
 
