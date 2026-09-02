@@ -6,7 +6,9 @@
   "scripts": {
     "map": "node tools/map.mjs",
     "check": "node tools/checks.mjs",
-    "export": "node tools/export.mjs"
+    "export": "node tools/export.mjs",
+    "stamp": "node tools/stamp.mjs",
+    "hooks": "git config core.hooksPath .githooks && echo \"hooks installed: .githooks\""
   },
   "dependencies": {
     "pdfjs-dist": "3.11.174",

@@ -118,6 +118,9 @@
   .out.ok{color:var(--ok)}
   .out.err{color:var(--red-text)}
   .files{margin:calc(var(--u)*2) 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:13px}
+  /* Quiet enough to ignore, legible enough to read out over the phone when a tester reports a bug. */
+  .build{margin:calc(var(--u)*3) 0 calc(var(--u)*2);text-align:center;font-family:var(--mono);
+    font-size:12px;color:var(--ink-2);opacity:.7;user-select:all}
   .files li{padding:var(--u) 0;border-bottom:1px solid var(--rule-soft);word-break:break-word}
   .files li b{font-weight:600;color:var(--ink)}
   .hidden{display:none}
@@ -210,6 +213,9 @@
     </div>
     <ul class="files" id="files"></ul>
   </section>
+  <!-- Build stamp. tools/stamp.mjs rewrites the span's text, and nothing else on the line; the
+       markers are what it anchors to, so leave them alone. -->
+  <footer class="build">build <span id="build"><!--BUILD-->f3152a2 · 2026-09-02<!--/BUILD--></span></footer>
 </div>
 
 <script id="core">

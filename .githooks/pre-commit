@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stamps index.html with the commit this build descends from, then stages it.
+#
+# Committed rather than left in .git/hooks so it travels with the repo; `npm run hooks` is what points
+# git at this directory. Skip it for one commit with `git commit --no-verify`.
+set -e
+node tools/stamp.mjs || exit 1
+git add index.html
